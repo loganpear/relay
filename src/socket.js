@@ -2,11 +2,22 @@ import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError } from './tasks.js';
 import { SlackClient, flushOutbox } from './slack.js';
 import { handleCommand, handleInteraction } from './server.js';
+import { homeRequest, publishTaskHome } from './home.js';
 
 export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
   const ack = { envelope_id: envelope.envelope_id };
   const payload = envelope.payload;
   if (!envelope.envelope_id || !payload) return { ack };
+  if (envelope.type === 'events_api') {
+    const home = homeRequest(teamId, allowedChannelId, payload, true);
+    return { ack, ...(home ? { home } : {}) };
+  }
+  if (envelope.type === 'interactive' && payload.view?.type === 'home') {
+    try {
+      const home = homeRequest(teamId, allowedChannelId, payload);
+      return { ack, ...(home ? { home } : {}) };
+    } catch { return { ack }; }
+  }
   const actualTeam = envelope.type === 'slash_commands' ? payload.team_id : payload.team?.id;
   const actualChannel = envelope.type === 'slash_commands' ? payload.channel_id : payload.channel?.id;
   if (actualTeam !== teamId || actualChannel !== allowedChannelId) {
@@ -69,8 +80,9 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
           }
           if (envelope.type === 'disconnect') { current.close(); retry(); return; }
           if (!envelope.envelope_id) return;
-          const { ack, feedback } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
+          const { ack, feedback, home } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
           current.send(JSON.stringify(ack));
+          if (home) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => logger.error('Relay could not refresh the Home tab. Reopen Home or try Show my task status again.'));
           if (feedback?.user) void client.call('chat.postEphemeral', feedback).catch(() => {});
           void flush();
         } catch { logger.error('Relay could not process a socket event.'); }

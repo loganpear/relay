@@ -39,7 +39,7 @@ Fill in these four settings:
 | `SLACK_TEAM_ID` | Your workspace ID: the `T…` part of `https://app.slack.com/client/T…` when you open Slack in a browser. |
 | `SLACK_ALLOWED_CHANNEL_ID` | The private test channel's ID from step 2. |
 
-In app settings, check that **Socket Mode** and **Interactivity & Shortcuts** are enabled. The supplied manifest enables both. This connection does not need a public website or a signing secret.
+In app settings, check that **Socket Mode** and **Interactivity & Shortcuts** are enabled. The supplied manifest enables both, plus the Home tab and its app_home_opened event. This connection does not need a public website or a signing secret.
 
 Never paste app tokens into a Slack conversation, GitHub issue, or public repository.
 
@@ -63,6 +63,8 @@ In your private test channel:
 4. Type `/tasks all` to see the saved task.
 
 Then repeat with a teammate: assign them a task, have them mark it done, and check the completion mention you receive. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
+
+Open **Relay → Home** to try **Show tasks assigned to me** and **Show tasks I’ve assigned to others**. The tables are private to the person opening them.
 
 ## If something isn't working
 

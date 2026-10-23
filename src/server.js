@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError, parseTask, labels } from './tasks.js';
 import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
+import { homeRequest, publishTaskHome } from './home.js';
 
 const help = 'Create: /task @person Task title --due YYYY-MM-DD\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
@@ -90,10 +91,18 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
         if (path === '/demo/action') return send(res, 200, { task: store.transition({ ...context, id: input.id, actorId: input.actorId, action: input.action, version: input.version, comment: input.comment }) });
         return send(res, 404, { error: 'Not found.' });
       }
-      if (req.method !== 'POST' || !['/slack/commands', '/slack/actions'].includes(path)) return send(res, 404, { error: 'Not found.' });
+      if (req.method !== 'POST' || !['/slack/commands', '/slack/actions', '/slack/events'].includes(path)) return send(res, 404, { error: 'Not found.' });
       if (demo) return send(res, 503, { error: 'Slack is disabled in demo mode.' });
       const raw = await readBody(req);
       if (!verifySlack(raw, req.headers, secret)) return send(res, 401, { error: 'Invalid Slack signature.' });
+      if (path === '/slack/events') {
+        const payload = JSON.parse(raw.toString());
+        if (payload.type === 'url_verification') return send(res, 200, { challenge: payload.challenge });
+        const home = homeRequest(teamId, allowedChannelId, payload, true);
+        send(res, 200, {});
+        if (home && client) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => {});
+        return;
+      }
       const form = Object.fromEntries(new URLSearchParams(raw.toString()));
       const key = createHash('sha256').update(req.headers['x-slack-request-timestamp']).update(raw).digest('hex');
       if (path === '/slack/commands') {
@@ -104,6 +113,13 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
       } else {
         const payload = JSON.parse(form.payload ?? '{}');
         if (payload.team?.id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
+        if (payload.view?.type === 'home') {
+          let home;
+          try { home = homeRequest(teamId, allowedChannelId, payload); } catch { /* Ignore invalid pagination. */ }
+          send(res, 200, {});
+          if (home && client) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => {});
+          return;
+        }
         if (allowedChannelId && payload.channel?.id !== allowedChannelId) return send(res, 200, {});
         try { handleInteraction(store, payload, key); send(res, 200, {}); }
         catch (error) {

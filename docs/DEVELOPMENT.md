@@ -53,7 +53,7 @@ For local Slack testing, add your bot token and app-level token to a private `.e
 8. Invite `@Relay` to a test channel, then create a task. Have the assignee click Mark done. Check the task thread for the completion mention to the assigner.
 9. Restart the service and check `/tasks all` to verify persistence. Capture a screenshot of the task card for the Handshake submission.
 
-The command Request URL is `/slack/commands`; the interactivity Request URL is `/slack/actions`. Slack's “escape channels, users, and links” option must remain enabled for both commands (set by the manifest).
+The command Request URL is `/slack/commands`; the interactivity Request URL is `/slack/actions`; the Events API Request URL is `/slack/events`. Slack's “escape channels, users, and links” option must remain enabled for both commands (set by the manifest).
 
 ## Delivery and security
 
@@ -86,3 +86,7 @@ MIT. See [LICENSE](../LICENSE).
 ## Upgrading from the review workflow
 
 On first startup, the two-status migration preserves Done tasks, maps all other statuses to To do, invalidates old buttons, and queues refreshed task cards. Task history is retained. Old completed tasks do not trigger retrospective notifications. The legacy review columns remain in SQLite for compatibility, but are no longer used by the workflow. Completion notifications are queued atomically with the task transition and retried independently after the updated card is delivered. Duplicate delivery of the same interaction does not enqueue another notification.
+
+## Personal Home tab
+
+Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. The Home tab provides two buttons and native Slack tables, with 20 rows per page. Queries use the authenticated Slack user plus the configured workspace and channel, include both statuses, and exclude self-assigned work from the assigned-to-others view. Publishing uses views.publish and sends no channel messages. Button values can choose a page and view, but cannot select another user. Reopening Home or clicking either view button refreshes its data.

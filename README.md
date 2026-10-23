@@ -18,6 +18,15 @@ Relay is currently an early, self-hosted release. A public **Add to Slack** inst
 
 That's all teammates need to get started. There is no separate Relay account or app download.
 
+## See your tasks in Slack
+
+Open **Relay → Home** and choose:
+
+- **Show tasks assigned to me** — your tasks, who assigned them, their To do / Done status, and due dates.
+- **Show tasks I’ve assigned to others** — work you handed to other people, with the assignee, status, and due date. Self-assigned tasks stay in your first view.
+
+Each table includes completed work and puts unfinished tasks first. Use **Next** and **Previous** for longer lists. Click either button again to refresh. These views are private to you and show tasks from the channel enabled for Relay.
+
 ## Your first task
 
 ```text

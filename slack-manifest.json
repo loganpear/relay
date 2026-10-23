@@ -5,17 +5,53 @@
     "background_color": "#254B42"
   },
   "features": {
-    "bot_user": { "display_name": "Relay", "always_online": false },
+    "bot_user": {
+      "display_name": "Relay",
+      "always_online": false
+    },
     "slash_commands": [
-      { "command": "/task", "url": "https://YOUR_HOST/slack/commands", "description": "Assign a task", "usage_hint": "@person Task title --due YYYY-MM-DD", "should_escape": true },
-      { "command": "/tasks", "url": "https://YOUR_HOST/slack/commands", "description": "List tasks in this channel", "usage_hint": "mine | assigned | team | all", "should_escape": true }
-    ]
+      {
+        "command": "/task",
+        "url": "https://YOUR_HOST/slack/commands",
+        "description": "Assign a task",
+        "usage_hint": "@person Task title --due YYYY-MM-DD",
+        "should_escape": true
+      },
+      {
+        "command": "/tasks",
+        "url": "https://YOUR_HOST/slack/commands",
+        "description": "List tasks in this channel",
+        "usage_hint": "mine | assigned | team | all",
+        "should_escape": true
+      }
+    ],
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": true
+    }
   },
-  "oauth_config": { "scopes": { "bot": ["commands", "chat:write"] } },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "commands",
+        "chat:write"
+      ]
+    }
+  },
   "settings": {
-    "interactivity": { "is_enabled": true, "request_url": "https://YOUR_HOST/slack/actions" },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://YOUR_HOST/slack/actions"
+    },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,
-    "token_rotation_enabled": false
+    "token_rotation_enabled": false,
+    "event_subscriptions": {
+      "bot_events": [
+        "app_home_opened"
+      ],
+      "request_url": "https://YOUR_HOST/slack/events"
+    }
   }
 }
