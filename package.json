@@ -1,0 +1,14 @@
+{
+  "name": "relay-slack-tasks",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "socket": "node --env-file-if-exists=.env src/socket.js",
+    "demo": "DEMO_MODE=true node --env-file-if-exists=.env src/server.js",
+    "test": "node --test"
+  }
+}

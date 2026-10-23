@@ -1,0 +1,21 @@
+{
+  "display_information": {
+    "name": "Relay",
+    "description": "Assign, track, and review tasks without leaving Slack.",
+    "background_color": "#254B42"
+  },
+  "features": {
+    "bot_user": { "display_name": "Relay", "always_online": false },
+    "slash_commands": [
+      { "command": "/task", "url": "https://YOUR_HOST/slack/commands", "description": "Assign a task or request changes", "usage_hint": "@person Task title --due YYYY-MM-DD", "should_escape": true },
+      { "command": "/tasks", "url": "https://YOUR_HOST/slack/commands", "description": "List tasks in this channel", "usage_hint": "mine | team | review | all", "should_escape": true }
+    ]
+  },
+  "oauth_config": { "scopes": { "bot": ["commands", "chat:write"] } },
+  "settings": {
+    "interactivity": { "is_enabled": true, "request_url": "https://YOUR_HOST/slack/actions" },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

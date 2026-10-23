@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+data/
+*.sqlite*
+.DS_Store
+node_modules/
+local/
+# Logo drafts are kept locally at the user's request.
+assets/relay-checkbox*.png
+assets/relay-checkbox*.svg
