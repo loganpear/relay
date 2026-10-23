@@ -2,7 +2,7 @@
 
 For workspace setup, start with the [installation guide](INSTALL.md). For everyday usage, see the [project overview](../README.md). Run commands below from the repository root.
 
-A small task manager inside Slack. Assign work, send it for review, and sign it off without introducing another daily app.
+A small task manager inside Slack. Assign work, mark it done, and notify the assigner without introducing another daily app.
 
 ## Run the local preview
 
@@ -12,7 +12,7 @@ Requires Node.js 24 or newer; there are no third-party packages to install.
 npm run demo
 ```
 
-Open http://127.0.0.1:3000. Switch between Logan, Alex, and Sam to try the permissions and review flow. Demo records persist in `data/demo.sqlite`. This preview never sends Slack messages, and its routes are disabled in Slack mode. It binds only to loopback.
+Open http://127.0.0.1:3000. Switch between Logan, Alex, and Sam to try the permissions and completion flow. Demo records persist in `data/demo.sqlite`. This preview never sends Slack messages, and its routes are disabled in Slack mode. It binds only to loopback.
 
 ```sh
 npm test
@@ -22,25 +22,16 @@ npm test
 
 ```text
 /task @alex Polish the landing page --due 2026-11-06
-/task @sam Update the team links --no-review
+/task @sam Update the team links
 /tasks mine
 /tasks team
-/tasks review
+/tasks assigned
 /tasks all
-/task changes 12 Please check the mobile spacing
 ```
 
-Select the assignee from Slack's mention suggestions. Dates use explicit YYYY-MM-DD; natural-language dates are not interpreted. Review is required unless `--no-review` is supplied. The creator is the reviewer, including for self-assigned tasks.
+Select the assignee from Slack's mention suggestions. Dates use explicit YYYY-MM-DD. Tasks have just two statuses: **To do** and **Done**. Only the assignee can click **Mark done**. Relay updates the shared card and posts a threaded completion message mentioning the assigner. No additional Slack scopes are needed.
 
-| State | Available action | Who can act |
-| --- | --- | --- |
-| To do | Start | Assignee |
-| To do / In progress | Ready for review | Assignee, when review is required |
-| To do / In progress | Complete | Assignee, when review is not required |
-| Ready for review | Approve & complete | Creator |
-| Ready for review | Request changes | Creator |
-
-Request changes returns work to In progress. The card button can request changes without a note; `/task changes ID Your feedback` adds a note. Lists are private to the person requesting them, limited to the current channel, and show up to 50 tasks. Completed tasks appear in `/tasks all`. The persistent task card is updated in place.
+`/tasks assigned` lists unfinished tasks created by the requester. All lists are scoped to the current channel and limited to 50 tasks. Completed tasks appear in `/tasks all`.
 
 ## Connect a Slack developer sandbox
 
@@ -59,7 +50,7 @@ For local Slack testing, add your bot token and app-level token to a private `.e
 5. Install the app to the sandbox. It requests `commands` and `chat:write`: it does not read channel history or the user directory.
 6. Copy `.env.example` to `.env`. Privately set the app's signing secret, bot token, and installed workspace ID. Never commit or share these values. On a host, use its private environment-variable settings.
 7. Set `DATABASE_PATH` to a file on a persistent volume. Run `npm start`.
-8. Invite `@Relay` to a test channel, then create a task. Have the assignee start it and send it for review. Have the creator request changes, then approve the next submission.
+8. Invite `@Relay` to a test channel, then create a task. Have the assignee click Mark done. Check the task thread for the completion mention to the assigner.
 9. Restart the service and check `/tasks all` to verify persistence. Capture a screenshot of the task card for the Handshake submission.
 
 The command Request URL is `/slack/commands`; the interactivity Request URL is `/slack/actions`. Slack's “escape channels, users, and links” option must remain enabled for both commands (set by the manifest).
@@ -69,17 +60,17 @@ The command Request URL is `/slack/commands`; the interactivity Request URL is `
 - Incoming Slack requests require HMAC signature verification, a timestamp within five minutes, and the configured workspace ID.
 - `SLACK_ALLOWED_CHANNEL_ID` restricts commands and button actions to one channel. Keep this set to a private test channel while testing in an existing workspace.
 - Task mutations verify the channel, actor, current status, and card version. Duplicate delivery of an identical signed request is idempotent.
-- Task changes, history, request receipts, and the outbound delivery queue are committed together in SQLite.
+- Task changes, history, request receipts, and the outbound card and completion-notification queues are committed together in SQLite.
 - Slack API calls run after the request acknowledgement. Failures remain in the outbox with backoff, including Slack rate limits; the queue resumes after restart.
 - A local database is the source of truth. If a card is stale, `/tasks` still shows the saved status. Check `outbox.error` in the private database when diagnosing delivery failures; errors are not exposed by the public health endpoint.
-- Task titles and review notes render as plain text in cards. List titles escape Slack markup.
+- Task titles render as plain text in cards and completion notices. List titles escape Slack markup.
 - Secrets and database files are ignored by Git. The health endpoint reveals only service availability and mode.
 
 ## Current limits
 
-This is a first single-workspace build. A live self-assigned task was verified in a private Slack test channel: create, start, submit for review, list the review queue, request changes with a note, resubmit, and approve. The same Slack card updated in place and the outbound queue drained. Testing with a separate assignee account is still pending. It has no OAuth installation flow for multiple workspaces, reminders, recurring tasks, edit/reassignment, or dashboard authentication. Use one service process and one local persistent database, not multiple replicas or an ephemeral filesystem. The local board is a workflow preview, not a production dashboard.
+This is a first single-workspace build. A live self-assigned task was verified in a private Slack test channel: create and update the card in place. The simplified completion flow has automated coverage; see the test suite. The same Slack card updated in place and the outbound queue drained. Testing with a separate assignee account is still pending. It has no OAuth installation flow for multiple workspaces, reminders, recurring tasks, edit/reassignment, or dashboard authentication. Use one service process and one local persistent database, not multiple replicas or an ephemeral filesystem. The local board is a workflow preview, not a production dashboard.
 
-Outbox retries preserve changes but cannot promise exactly-once posting if Slack accepts a new message and the network loses the response before its timestamp is saved. Requests and receipts are currently retained indefinitely; choose retention and backup policies before wider deployment.
+Outbox retries preserve changes but cannot promise exactly-once posting if Slack accepts a new card or completion notification and the network loses the response before its timestamp is saved. Requests and receipts are currently retained indefinitely; choose retention and backup policies before wider deployment.
 
 ## Official references
 
@@ -91,3 +82,7 @@ Outbox retries preserve changes but cannot promise exactly-once posting if Slack
 ## License
 
 MIT. See [LICENSE](../LICENSE).
+
+## Upgrading from the review workflow
+
+On first startup, the two-status migration preserves Done tasks, maps all other statuses to To do, invalidates old buttons, and queues refreshed task cards. Task history is retained. Old completed tasks do not trigger retrospective notifications. The legacy review columns remain in SQLite for compatibility, but are no longer used by the workflow. Completion notifications are queued atomically with the task transition and retried independently after the updated card is delivered. Duplicate delivery of the same interaction does not enqueue another notification.

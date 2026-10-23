@@ -58,11 +58,11 @@ No package installation is needed. Wait for **Relay connected to Slack**. Leave 
 In your private test channel:
 
 1. Type `/task @yourself Try Relay` and select yourself from Slack's suggestions.
-2. Click **Start task**, then **Ready for review**.
-3. Click **Approve & complete**. The card should show **Done**.
+2. Click **Mark done**. The card should show **Done**.
+3. Open the task’s thread to see the completion mention to the assigner.
 4. Type `/tasks all` to see the saved task.
 
-Then repeat with a teammate to try assigning and reviewing work between two people. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
+Then repeat with a teammate: assign them a task, have them mark it done, and check the completion mention you receive. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
 
 ## If something isn't working
 
@@ -70,6 +70,6 @@ Then repeat with a teammate to try assigning and reviewing work between two peop
 - **Commands time out:** make sure Relay is still running and connected. Check the workspace and channel IDs in `.env`.
 - **No task card appears:** add Relay to the private channel using **Channel details → Agents & apps**.
 - **Relay says testing is restricted:** use the channel configured in `SLACK_ALLOWED_CHANNEL_ID`.
-- **A button is unavailable:** the assignee starts and submits work; the person who created the task approves or requests changes.
+- **A button is unavailable:** only the assignee can mark an unfinished task done.
 
 For a persistent server setup and technical details, see the [developer guide](DEVELOPMENT.md).

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError, parseTask, labels } from './tasks.js';
 import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
 
-const help = 'Create: /task @person Task title --due YYYY-MM-DD\nReview is required by default; add --no-review to skip it.\nLists: /tasks mine · /tasks team · /tasks review · /tasks all\nReview feedback: /task changes ID Your feedback';
+const help = 'Create: /task @person Task title --due YYYY-MM-DD\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
 
 export function handleCommand(store, form, receiptKey) {
@@ -14,18 +14,13 @@ export function handleCommand(store, form, receiptKey) {
   const text = (form.text ?? '').trim();
   if (form.command === '/tasks') {
     const mode = text || 'mine';
-    if (!['mine', 'team', 'review', 'all'].includes(mode)) return ephemeral(help);
+    if (!['mine', 'assigned', 'team', 'all'].includes(mode)) return ephemeral(help);
     const tasks = store.list({ ...context, mode, includeDone: mode === 'all' });
     if (!tasks.length) return ephemeral('No matching tasks in this channel. Create one with /task @person Task title.');
-    return ephemeral(`*${mode === 'review' ? 'Waiting for your review' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${task.dueDate}` : ''}`).join('\n') + '\nUse the buttons on each original task card to update it. Showing up to 50 tasks.');
+    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${task.dueDate}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
   }
   if (form.command !== '/task') throw new TaskError('Unknown command. Use /task or /tasks.');
   if (!text || text === 'help') return ephemeral(help);
-  const changes = text.match(/^changes\s+(\d+)\s+(.+)$/s);
-  if (changes) {
-    const task = store.transition({ id: Number(changes[1]), ...context, actorId: context.userId, action: 'changes', comment: changes[2].trim(), receiptKey });
-    return ephemeral(`Changes requested for #${task.id}. Your note is saved; the task card will update shortly.`);
-  }
   const task = store.create({ ...context, creatorId: context.userId, ...parseTask(text) }, receiptKey);
   return ephemeral(`Task #${task.id} saved and queued for this channel. If its card doesn’t appear, invite @Relay to the channel and check delivery health.`);
 }
@@ -33,7 +28,7 @@ export function handleCommand(store, form, receiptKey) {
 export function handleInteraction(store, payload, receiptKey) {
   if (payload.type !== 'block_actions' || payload.actions?.length !== 1) throw new TaskError('Unsupported interaction.');
   const selected = payload.actions[0];
-  if (!/^task_(start|ready|complete|approve|changes)$/.test(selected.action_id)) throw new TaskError('Unknown task action.');
+  if (selected.action_id !== 'task_complete') throw new TaskError('This is an older task button. Use Mark done on the updated card.');
   let value;
   try { value = JSON.parse(selected.value); } catch { throw new TaskError('Invalid task button.'); }
   if (!Number.isSafeInteger(value.id) || !Number.isSafeInteger(value.version)) throw new TaskError('Invalid task button.');
@@ -89,7 +84,7 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
         if (path === '/demo/create') {
           if (!['UALEX', 'ULOGAN', 'USAM'].includes(input.assigneeId)) throw new TaskError('Choose an assignee.');
           const task = store.create({ ...context, creatorId: input.actorId,
-            ...parseTask(`<@${input.assigneeId}> ${input.title ?? ''}${input.dueDate ? ` --due ${input.dueDate}` : ''}${input.requiresReview === false ? ' --no-review' : ''}`) });
+            ...parseTask(`<@${input.assigneeId}> ${input.title ?? ''}${input.dueDate ? ` --due ${input.dueDate}` : ''}`) });
           return send(res, 201, { task });
         }
         if (path === '/demo/action') return send(res, 200, { task: store.transition({ ...context, id: input.id, actorId: input.actorId, action: input.action, version: input.version, comment: input.comment }) });
@@ -141,10 +136,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!demo && (!secret || !token || !teamId)) throw new Error('Set SLACK_SIGNING_SECRET, SLACK_BOT_TOKEN, and SLACK_TEAM_ID in .env, or run npm run demo.');
   const store = new TaskStore(demo ? './data/demo.sqlite' : (process.env.DATABASE_PATH || './data/relay.sqlite'));
   if (demo && !store.list({ teamId: 'TDEMO', channelId: 'CDEMO', includeDone: true }).length) {
-    const base = { teamId: 'TDEMO', channelId: 'CDEMO', creatorId: 'ULOGAN', assigneeId: 'UALEX', requiresReview: true };
+    const base = { teamId: 'TDEMO', channelId: 'CDEMO', creatorId: 'ULOGAN', assigneeId: 'UALEX' };
     store.create({ ...base, title: 'Polish the landing page' });
-    const second = store.create({ ...base, assigneeId: 'USAM', title: 'Review the mobile onboarding flow' });
-    store.transition({ id: second.id, teamId: 'TDEMO', channelId: 'CDEMO', actorId: 'USAM', action: 'ready' });
+    store.create({ ...base, assigneeId: 'USAM', title: 'Check the mobile onboarding flow' });
   }
   const server = createApp({ store, secret, teamId, allowedChannelId: process.env.SLACK_ALLOWED_CHANNEL_ID, client: demo ? null : new SlackClient(token), demo });
   server.listen(Number(process.env.PORT || 3000), host, () => console.log(`Relay ${demo ? 'local demo' : 'Slack service'} running at http://${host}:${process.env.PORT || 3000}`));

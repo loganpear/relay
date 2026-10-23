@@ -1,7 +1,7 @@
 {
   "display_information": {
     "name": "Relay",
-    "description": "Assign, track, and review tasks without leaving Slack.",
+    "description": "Assign tasks, mark them done, and notify the assigner in Slack.",
     "background_color": "#254B42"
   },
   "features": {
@@ -12,14 +12,14 @@
     "slash_commands": [
       {
         "command": "/task",
-        "description": "Assign a task or request changes",
+        "description": "Assign a task",
         "usage_hint": "@person Task title --due YYYY-MM-DD",
         "should_escape": true
       },
       {
         "command": "/tasks",
         "description": "List tasks in this channel",
-        "usage_hint": "mine | team | review | all",
+        "usage_hint": "mine | assigned | team | all",
         "should_escape": true
       }
     ]

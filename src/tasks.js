@@ -3,14 +3,14 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export class TaskError extends Error {}
-export const statuses = ['todo', 'in_progress', 'review', 'done'];
-export const labels = { todo: 'To do', in_progress: 'In progress', review: 'Ready for review', done: 'Done' };
+export const statuses = ['todo', 'done'];
+export const labels = { todo: 'To do', done: 'Done' };
 
 export function parseTask(text) {
   const match = text.trim().match(/^<@([A-Z0-9]+)(?:\|[^>]+)?>\s+(.+)$/s);
   if (!match) throw new TaskError('Use /task @someone Task title --due YYYY-MM-DD. Select the person from Slack’s suggestions.');
   let title = match[2].trim();
-  const noReview = /(?:^|\s)--no-review(?=\s|$)/.test(title);
+  // Accept the former flag on old saved commands; completion is now always direct.
   title = title.replace(/(?:^|\s)--no-review(?=\s|$)/g, ' ').trim();
   let dueDate = null;
   const due = title.match(/(?:^|\s)--due\s+(\S+)/);
@@ -21,9 +21,9 @@ export function parseTask(text) {
     }
     title = title.replace(due[0], ' ').trim();
   }
-  if (title.includes('--')) throw new TaskError('Supported options: --due YYYY-MM-DD and --no-review.');
+  if (title.includes('--')) throw new TaskError('Supported option: --due YYYY-MM-DD.');
   if (!title || title.length > 240) throw new TaskError('Give the task a title between 1 and 240 characters.');
-  return { assigneeId: match[1], title, dueDate, requiresReview: !noReview };
+  return { assigneeId: match[1], title, dueDate };
 }
 
 export class TaskStore {
@@ -52,7 +52,21 @@ export class TaskStore {
         taskId INTEGER PRIMARY KEY REFERENCES tasks(id), attempts INTEGER NOT NULL DEFAULT 0,
         nextAttempt INTEGER NOT NULL DEFAULT 0, error TEXT
       );
+      CREATE TABLE IF NOT EXISTS completion_notifications (
+        taskId INTEGER PRIMARY KEY REFERENCES tasks(id),
+        attempts INTEGER NOT NULL DEFAULT 0, nextAttempt INTEGER NOT NULL DEFAULT 0,
+        error TEXT, sentTs TEXT
+      );
+      CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY);
     `);
+    this.transaction(() => {
+      if (this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('two-status-tasks')) return;
+      // Preserve finished tasks, return all unfinished work to To do, and refresh old cards.
+      const existing = this.db.prepare('SELECT id FROM tasks').all();
+      this.db.exec("UPDATE tasks SET status=CASE WHEN status='done' THEN 'done' ELSE 'todo' END,requiresReview=0,lastComment=NULL,version=version+1");
+      for (const task of existing) this.enqueue(task.id);
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('two-status-tasks');
+    });
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -70,7 +84,7 @@ export class TaskStore {
       if (receiptKey && this.receipt(receiptKey)) return this.get(this.receipt(receiptKey).taskId, input.teamId);
       const now = new Date().toISOString();
       const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,requiresReview,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.requiresReview ? 1 : 0, now, now);
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, 0, now, now);
       const id = Number(result.lastInsertRowid);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, input.creatorId, 'created', now);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
@@ -78,25 +92,17 @@ export class TaskStore {
       return this.get(id, input.teamId);
     });
   }
-  transition({ id, teamId, channelId, actorId, action, version, comment = null, receiptKey }) {
+  transition({ id, teamId, channelId, actorId, action, version, receiptKey }) {
     return this.transaction(() => {
       const task = this.get(id, teamId);
       if (!task || task.channelId !== channelId) throw new TaskError('That task is not available in this channel.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
-      let next;
-      const assignee = actorId === task.assigneeId;
-      const reviewer = actorId === task.creatorId;
-      if (action === 'start' && task.status === 'todo' && assignee) next = 'in_progress';
-      if (action === 'ready' && ['todo', 'in_progress'].includes(task.status) && assignee && task.requiresReview) next = 'review';
-      if (action === 'complete' && ['todo', 'in_progress'].includes(task.status) && assignee && !task.requiresReview) next = 'done';
-      if (action === 'approve' && task.status === 'review' && reviewer) next = 'done';
-      if (action === 'changes' && task.status === 'review' && reviewer) next = 'in_progress';
-      if (!next) throw new TaskError('This action is unavailable. Assignees start and submit tasks; the task creator reviews them.');
-      if (comment && comment.length > 500) throw new TaskError('Keep the review note under 500 characters.');
+      if (action !== 'complete' || task.status !== 'todo' || actorId !== task.assigneeId) throw new TaskError('This action is unavailable. Only the assignee can mark an unfinished task done.');
       const now = new Date().toISOString();
-      this.db.prepare('UPDATE tasks SET status=?,version=version+1,updatedAt=?,lastComment=? WHERE id=?').run(next, now, comment, id);
-      this.db.prepare('INSERT INTO history(taskId,actorId,action,comment,createdAt) VALUES (?,?,?,?,?)').run(id, actorId, action, comment, now);
+      this.db.prepare("UPDATE tasks SET status='done',version=version+1,updatedAt=? WHERE id=?").run(now, id);
+      this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, actorId, 'complete', now);
+      this.db.prepare('INSERT INTO completion_notifications(taskId) VALUES (?)').run(id);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
       this.enqueue(id);
       return this.get(id, teamId);
@@ -106,7 +112,7 @@ export class TaskStore {
     let sql = 'SELECT * FROM tasks WHERE teamId=? AND channelId=?';
     const args = [teamId, channelId];
     if (mode === 'mine') { sql += ' AND assigneeId=?'; args.push(userId); }
-    if (mode === 'review') { sql += " AND creatorId=? AND status='review'"; args.push(userId); }
+    if (mode === 'assigned') { sql += ' AND creatorId=?'; args.push(userId); }
     if (!includeDone) sql += " AND status!='done'";
     return this.db.prepare(sql + ' ORDER BY createdAt DESC,id DESC LIMIT 50').all(...args);
   }
@@ -119,5 +125,16 @@ export class TaskStore {
   }
   deliveryFailed(id, error, retryAfter = 0) {
     this.db.prepare('UPDATE outbox SET attempts=attempts+1,error=?,nextAttempt=? + min(300000,1000 * (1 << min(attempts,8))) WHERE taskId=?').run(error, Date.now() + retryAfter, id);
+  }
+  pendingNotifications() {
+    return this.db.prepare(`SELECT t.* FROM completion_notifications n JOIN tasks t ON t.id=n.taskId
+      WHERE n.sentTs IS NULL AND n.nextAttempt<=? AND t.messageTs IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.taskId=t.id) ORDER BY t.id LIMIT 10`).all(Date.now());
+  }
+  notificationDelivered(id, ts) {
+    this.db.prepare('UPDATE completion_notifications SET sentTs=?,error=NULL WHERE taskId=?').run(ts, id);
+  }
+  notificationFailed(id, error, retryAfter = 0) {
+    this.db.prepare('UPDATE completion_notifications SET attempts=attempts+1,error=?,nextAttempt=? + min(300000,1000 * (1 << min(attempts,8))) WHERE taskId=?').run(error, Date.now() + retryAfter, id);
   }
 }

@@ -1,6 +1,6 @@
 # Relay
 
-**Assign work. Track progress. Get it approved. All inside Slack.**
+**Assign work. Mark it done. Keep everyone in the loop.**
 
 Relay is a lightweight task manager for teams that want a clear owner and a clear next step, without opening another app.
 
@@ -26,16 +26,16 @@ That's all teammates need to get started. There is no separate Relay account or 
 
 Choose Alex from Slack's mention suggestions. Relay posts a task card in the channel with the owner, status, and buttons to move it forward.
 
-**To do → In progress → Ready for review → Done**
+**To do → Done**
 
-The assignee starts the task and sends it for review. The person who created it can approve it or request changes. The same card updates, so everyone can see where the work stands.
+The assignee clicks **Mark done**. Relay updates the card and posts a completion message in its thread, mentioning the person who assigned it. No review or approval step is needed. Slack delivers mention alerts according to the recipient’s notification settings.
 
 ## Find what needs your attention
 
 | Type this in your Relay channel | What you see |
 | --- | --- |
 | `/tasks mine` | Your unfinished tasks |
-| `/tasks review` | Tasks waiting for your approval |
+| `/tasks assigned` | Unfinished tasks you assigned to others |
 | `/tasks team` | The channel's unfinished tasks |
 | `/tasks all` | The channel's tasks, including completed work |
 
@@ -51,25 +51,11 @@ Task lists are visible only to the person requesting them. Shared task cards sta
 
 Use year-month-day for dates.
 
-**Skip approval for a simple task:**
-
-```text
-/task @sam Update the team links --no-review
-```
-
-**Explain a requested change:**
-
-```text
-/task changes 12 Please check the mobile spacing
-```
-
-Replace `12` with the task number. The note appears on the task card, and the task returns to **In progress**.
-
 ## Access and privacy
 
 Relay requests permission to receive its commands and post its task cards. It does not request permission to read channel history or your workspace's user directory.
 
-Assignees update their work; task creators review it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
+Only the assignee can mark a task done. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
 
 ## Building on Relay
 

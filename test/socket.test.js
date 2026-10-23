@@ -26,12 +26,12 @@ test('Socket Mode ignores events outside the private workspace/channel', () => {
 test('Socket Mode buttons use the same authorization and version checks', () => {
   const store = new TaskStore(); const context = { store, teamId: 'TTEST', allowedChannelId: 'CTEST' };
   handleEnvelope(context, command());
-  const event = { envelope_id: 'button-1', type: 'interactive', payload: { type: 'block_actions', team: { id: 'TTEST' }, channel: { id: 'CTEST' }, user: { id: 'USTRANGER' }, actions: [{ action_id: 'task_ready', value: JSON.stringify({ id: 1, version: 0 }) }] } };
+  const event = { envelope_id: 'button-1', type: 'interactive', payload: { type: 'block_actions', team: { id: 'TTEST' }, channel: { id: 'CTEST' }, user: { id: 'USTRANGER' }, actions: [{ action_id: 'task_complete', value: JSON.stringify({ id: 1, version: 0 }) }] } };
   const result = handleEnvelope(context, event);
   assert.match(result.feedback.text, /unavailable/);
   assert.equal(store.get(1, 'TTEST').status, 'todo');
   event.envelope_id = 'button-2'; event.payload.user.id = 'UASSIGNEE';
   assert.equal(handleEnvelope(context, event).feedback, undefined);
-  assert.equal(store.get(1, 'TTEST').status, 'review');
+  assert.equal(store.get(1, 'TTEST').status, 'done');
   store.close();
 });

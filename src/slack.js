@@ -12,26 +12,23 @@ export const escapeSlack = text => String(text).replaceAll('&', '&amp;').replace
 
 export function taskMessage(task) {
   const choices = [];
-  if (task.status === 'todo') choices.push(['start', 'Start task']);
-  if (['todo', 'in_progress'].includes(task.status)) choices.push(task.requiresReview ? ['ready', 'Ready for review'] : ['complete', 'Complete']);
-  if (task.status === 'review') choices.push(['approve', 'Approve & complete'], ['changes', 'Request changes']);
+  if (task.status === 'todo') choices.push(['complete', 'Mark done']);
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `Relay · Task #${task.id}` } },
     { type: 'section', text: { type: 'plain_text', text: task.title } },
     { type: 'section', fields: [
       { type: 'mrkdwn', text: `*Status*\n${labels[task.status]}` },
       { type: 'mrkdwn', text: `*Assigned to*\n<@${task.assigneeId}>` },
-      { type: 'mrkdwn', text: `*${task.requiresReview ? 'Reviewer' : 'Created by'}*\n<@${task.creatorId}>` },
+      { type: 'mrkdwn', text: `*Assigned by*\n<@${task.creatorId}>` },
       { type: 'mrkdwn', text: `*Due*\n${task.dueDate ?? 'No deadline'}` }
     ] }
   ];
-  if (task.lastComment) blocks.push({ type: 'section', text: { type: 'plain_text', text: `Review note: ${task.lastComment}` } });
   if (choices.length) blocks.push({ type: 'actions', elements: choices.map(([action, text]) => ({
     type: 'button', action_id: `task_${action}`, text: { type: 'plain_text', text },
     value: JSON.stringify({ id: task.id, version: task.version }),
-    ...(action === 'approve' || action === 'complete' ? { style: 'primary' } : {})
+    style: 'primary'
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.status === 'review' ? 'Waiting for the task creator. Add feedback with /task changes ID Your note.' : 'Relay · Tasks stay open until completed. /tasks mine shows your work.' }] });
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.status === 'done' ? 'Relay · Done. Completion is sent to the assigner in this task’s thread.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
   return { text: `Task #${task.id}: ${task.title} — ${labels[task.status]}`, blocks };
 }
 
@@ -59,6 +56,17 @@ export class SlackClient {
       unfurl_links: false, unfurl_media: false });
     return result.ts;
   }
+  async notifyCompletion(task) {
+    const result = await this.call('chat.postMessage', {
+      channel: task.channelId, thread_ts: task.messageTs, reply_broadcast: false,
+      text: `<@${task.creatorId}> — <@${task.assigneeId}> marked task #${task.id} done: ${escapeSlack(task.title)}`,
+      blocks: [
+        { type: 'section', text: { type: 'mrkdwn', text: `<@${task.creatorId}> — <@${task.assigneeId}> marked task #${task.id} *Done*.` } },
+        { type: 'section', text: { type: 'plain_text', text: task.title } }
+      ], unfurl_links: false, unfurl_media: false
+    });
+    return result.ts;
+  }
 }
 
 export async function flushOutbox(store, client) {
@@ -66,5 +74,9 @@ export async function flushOutbox(store, client) {
     const task = store.get(item.taskId, item.teamId);
     try { store.delivered(task, await client.deliver(task)); }
     catch (error) { store.deliveryFailed(task.id, error.message, error.retryAfter); }
+  }
+  for (const task of store.pendingNotifications()) {
+    try { store.notificationDelivered(task.id, await client.notifyCompletion(task)); }
+    catch (error) { store.notificationFailed(task.id, error.message, error.retryAfter); }
   }
 }
