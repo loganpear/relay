@@ -30,16 +30,17 @@ export function homeRequest(teamId, allowedChannelId, payload, event = false) {
     const [,operation,mode] = match;
     if (operation === 'expand' || operation === 'collapse') { state[`${mode}Expanded`] = operation === 'expand'; state[`${mode}Page`] = 0; }
     else state[`${mode}Page`] = Math.max(0,state[`${mode}Page`] + (operation === 'next' ? 1 : -1));
-  } else if (['home_current','home_past'].includes(action.action_id)) {
-    state.period=action.action_id==='home_past'?'past':'current';
+  } else if (['home_current','home_past','home_view_past'].includes(action.action_id)) {
+    state.period=action.action_id==='home_current'?'current':'past';
     for(const mode of ['mine','assigned']){state[`${mode}Expanded`]=false;state[`${mode}Page`]=0;}
   } else if (action.action_id !== 'home_refresh') return null;
   return { userId: payload.user.id, ...homeState(state) };
 }
 const cellAction = (action, label, mode, task) => ({ type:'action_cell',element:button(`${action}:${mode}:${task.id}`,label,{id:task.id,version:task.version}),fallback:text(label) });
-export function taskHome(store, { teamId, channelId, userId, notice, ...input }) {
+export function taskHome(store, { teamId, channelId, userId, notice, completionTitle, ...input }) {
   const state = homeState(input);
   const blocks = [{type:'actions',elements:[button('home_current','Current',{},state.period==='current'?{style:'primary'}:{}),button('home_past','Past',{},state.period==='past'?{style:'primary'}:{})]}];
+  if(completionTitle)blocks.push({type:'section',text:{type:'plain_text',text:`✅ “${completionTitle}” marked Done and moved to Past. The assigner will receive a completion notification.`},accessory:button('home_view_past','View Past',{})});
   for (const mode of ['mine','assigned']) {
     const expanded = state[`${mode}Expanded`];
     const data = store.personalPage({teamId,channelId,userId,direction:mode,period:state.period,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
@@ -70,7 +71,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
   const deleted = state.undoId ? store.get(state.undoId,teamId) : null;
   if(deleted?.channelId===channelId && deleted.creatorId===userId && deleted.deletedAt && deleted.version===state.undoVersion) {
     blocks.push({type:'section',text:{type:'plain_text',text:'Task deleted.'},accessory:button('ui_restore','Undo delete',{id:deleted.id,version:deleted.version})});
-  } else { state.undoId=null; state.undoVersion=null; if(notice)blocks.push(section(notice)); }
+  } else { state.undoId=null; state.undoVersion=null; if(notice&&!completionTitle)blocks.push(section(notice)); }
   blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or a status to toggle it. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};

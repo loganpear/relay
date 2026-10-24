@@ -118,7 +118,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
       if(task.status===row.status)return {ackPayload:{},home};
       store.transition({...context,id:task.id,version:task.version,action:row.status==='done'?'complete':'reopen',receiptKey});
-      return {ackPayload:{},home:{...home,notice:row.status==='done'?'Task marked done. Its assigner will receive a completion mention.':'Task reopened.'}};
+      return {ackPayload:{},home:{...home,...(row.status==='done'?{completionTitle:task.title}:{}),notice:row.status==='done'?'Task marked done and moved to Past.':'Task reopened.'}};
     }
     if(['ui_edit','ui_due','ui_delete'].includes(name)){
       if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
@@ -129,7 +129,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     else if(['ui_complete','ui_reopen'].includes(name))store.transition({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else throw new TaskError('Unknown task action.');
     const notice=name==='ui_archive'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):name==='ui_unarchive'?(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.'):name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task restored.';
-    return {ackPayload:{},home:{...home,...(name==='ui_restore'?{undoId:null,undoVersion:null}:{}),notice}};
+    return {ackPayload:{},home:{...home,...(name==='ui_restore'?{undoId:null,undoVersion:null}:{}),...(name==='ui_complete'?{completionTitle:task.title}:{}),notice}};
   }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }
 export async function runAppUiEffects(client,store,config,result){

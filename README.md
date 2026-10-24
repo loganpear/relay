@@ -22,7 +22,7 @@ That's all teammates need to get started. There is no separate Relay account or 
 
 Open **Relay → Home**. **Current** shows two tables:
 
-- **Assigned to you** — unfinished work assigned to you. Marking it Done moves it to your Past list immediately.
+- **Assigned to you** — unfinished work assigned to you. Marking it Done moves it to your Past list immediately. A confirmation at the top names the task and includes **View Past** so you can find it again.
 - **Assigned by you** — work you created. Completed tasks stay here for seven days after completion so you can see the result; click **Archive** to move them to your Past list sooner.
 
 Switch to **Past** to find completed, archived, and deleted work. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.

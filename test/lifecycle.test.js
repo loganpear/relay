@@ -82,3 +82,14 @@ test('Archiving To do stops work for both people without completion and can be r
  assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','current').total,1);
  store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'});assert.equal(store.get(task.id,base.teamId).status,'done');store.close();
 });
+
+test('Completing from Current shows a named success message above the tables and a working View Past shortcut',()=>{
+ const store=new TaskStore();const task=store.create({...base,title:'<!channel> plain text task'});
+ const result=handleAppUi(store,config,action(task,'ui_complete:mine:'+task.id,base.assigneeId));
+ assert.equal(result.home.completionTitle,task.title);
+ const view=taskHome(store,{...base,...result.home});
+ assert.match(view.blocks[1].text.text,/✅.*<!channel> plain text task.*marked Done and moved to Past/);assert.equal(view.blocks[1].text.type,'plain_text');
+ assert.equal(view.blocks[1].accessory.text.text,'View Past');assert.equal(view.blocks[1].accessory.action_id,'home_view_past');
+ const past=homeRequest(base.teamId,base.channelId,action(task,'home_view_past',base.assigneeId));assert.equal(past.period,'past');
+ const pastView=taskHome(store,{...base,...past});assert.equal(pastView.blocks.find(b=>b.type==='data_table').rows[1][0].element.text.text,task.title);assert.equal(pastView.blocks.some(b=>b.accessory?.action_id==='home_view_past'),false);store.close();
+});
