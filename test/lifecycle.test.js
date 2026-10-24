@@ -48,7 +48,7 @@ test('Archived work stays readable in Past and only the creator can reactivate i
 test('View switching resets pages, Past orders recent activity, and pagination bounds apply',()=>{
  const store=new TaskStore();for(let i=0;i<26;i++){const t=store.create({...base,title:'Task '+i});store.transition({...context,id:t.id,actorId:base.assigneeId,action:'complete'});}
  const request=homeRequest(base.teamId,base.channelId,action({id:1,version:0},'home_past',base.assigneeId,{mineExpanded:true,minePage:2}));assert.equal(request.period,'past');assert.equal(request.mineExpanded,false);assert.equal(request.minePage,0);
- const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows[0][4].text,'Created at');assert.equal(table.rows[1][4].type,'raw_number');assert.equal(table.rows[1][4].value,Date.parse(store.get(26,base.teamId).createdAt));assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'Task 25');
+ const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows[0][4].text,'Created at');assert.equal(table.rows[1][4].type,'raw_number');assert.equal(table.rows[1][4].value,Date.parse(store.get(26,base.teamId).createdAt));assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'#26 · Task 25');
  assert.equal(taskHome(store,{...base,userId:base.assigneeId,period:'past',mineExpanded:true}).blocks.find(b=>b.type==='data_table').rows.length,21);
  assert.equal(page(store,'USTRANGER','mine','past').total,0);assert.equal(store.personalPage({...base,teamId:'TOTHER',userId:base.assigneeId,direction:'mine',period:'past'}).total,0);store.close();
 });
@@ -92,7 +92,7 @@ test('Completing from Current shows a named success message above the tables and
  assert.match(view.blocks[1].text.text,/✅.*<!channel> plain text task.*marked Done and moved to Past/);assert.equal(view.blocks[1].text.type,'plain_text');
  assert.equal(view.blocks[1].accessory.text.text,'View Past');assert.equal(view.blocks[1].accessory.action_id,'home_view_past');
  const past=homeRequest(base.teamId,base.channelId,action(task,'home_view_past',base.assigneeId));assert.equal(past.period,'past');
- const pastView=taskHome(store,{...base,...past});assert.equal(pastView.blocks.find(b=>b.type==='data_table').rows[1][0].element.text.text,task.title);assert.equal(pastView.blocks.some(b=>b.accessory?.action_id==='home_view_past'),false);store.close();
+ const pastView=taskHome(store,{...base,...past});assert.equal(pastView.blocks.find(b=>b.type==='data_table').rows[1][0].element.text.text,`#${task.id} · ${task.title}`);assert.equal(pastView.blocks.some(b=>b.accessory?.action_id==='home_view_past'),false);store.close();
 });
 
 test('Old soft-deleted records migrate to archives without losing history or sending old notifications',async()=>{

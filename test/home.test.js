@@ -16,9 +16,9 @@ test('Current shows unfinished assigned-to work and keeps creation at the bottom
  store.create({...base,teamId:'TOTHER',title:'Wrong workspace'});store.create({...base,channelId:'COTHER',title:'Wrong channel'});
  const view=taskHome(store,context),[mine,assigned]=tables(view);
  assert.equal(mine.caption,'Assigned to you · 2');assert.equal(assigned.caption,'Assigned by you · 2');
- assert.deepEqual(mine.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Self assigned','Older open work']);
+ assert.deepEqual(mine.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['#4 · Self assigned','#1 · Older open work']);
  assert.equal(mine.rows[2][3].element.text.text,'▾ 🔲 To do');
- assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Self assigned','Delegated']);
+ assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['#4 · Self assigned','#3 · Delegated']);
  assert.equal(mine.rows[0].length,4);assert.ok(mine.rows.slice(1).every(row=>row.length===4));
  assert.equal(assigned.rows[0][4].text,'Archive');assert.equal(assigned.rows[1][4].element.text.text,'▾ Active');assert.equal(assigned.rows[1][3].type,'raw_text');
  assert.deepEqual(view.blocks.at(-1).elements.map(e=>e.action_id),['ui_new','home_refresh']);
@@ -28,12 +28,12 @@ test('Independent expansion pages all older records and collapses to the newest 
  const store=new TaskStore();for(let i=0;i<47;i++)store.create({...base,title:`Task ${i}`});
  for(let i=0;i<7;i++)store.create({...base,creatorId:'UME',assigneeId:'UOTHER',title:`Delegated ${i}`});
  const first=taskHome(store,context);assert.equal(tables(first)[0].rows.length,6);assert.equal(tables(first)[1].rows.length,6);
- assert.equal(tables(first)[0].rows[1][0].element.text.text,'Task 46');
+ assert.equal(tables(first)[0].rows[1][0].element.text.text,'#47 · Task 46');
  const expanded=homeRequest('TTEST','CTEST',action('home_expand_mine'));
  assert.equal(expanded.mineExpanded,true);assert.equal(expanded.assignedExpanded,false);
  const view=taskHome(store,{...context,...expanded});assert.equal(tables(view)[0].rows.length,21);assert.equal(tables(view)[1].rows.length,6);
  const second=homeRequest('TTEST','CTEST',action('home_next_mine',expanded));assert.equal(second.minePage,1);
- assert.equal(tables(taskHome(store,{...context,...second}))[0].rows[1][0].element.text.text,'Task 26');
+ assert.equal(tables(taskHome(store,{...context,...second}))[0].rows[1][0].element.text.text,'#27 · Task 26');
  const last=taskHome(store,{...context,mineExpanded:true,minePage:999});assert.equal(tables(last)[0].rows.length,8);assert.equal(JSON.parse(last.private_metadata).minePage,2);
  const collapsed=homeRequest('TTEST','CTEST',action('home_collapse_mine',second));assert.equal(collapsed.mineExpanded,false);assert.equal(collapsed.minePage,0);
  assert.ok(actions(view).some(e=>e.action_id==='home_next_mine'));store.close();
