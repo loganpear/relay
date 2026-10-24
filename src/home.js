@@ -52,7 +52,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(state.period==='past'?'No past tasks yet.':mode==='mine'?"You’re all caught up.":'No current tasks assigned by you.'));
     else {
       const showManagement = mode === 'assigned';
-      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(state.period==='past'?['Created at']:[]),...(showManagement?['Archived']:[])];
+      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(state.period==='past'?['Created at']:[]),...(showManagement?['Archive']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});
@@ -73,7 +73,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     blocks.push({type:'divider'});
   }
   if(notice&&!completionTitle)blocks.push(section(notice));
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or an editable Status or Archived cell to choose a value. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or an editable Status or Archive cell to choose a value. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }
