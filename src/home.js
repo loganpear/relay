@@ -1,4 +1,4 @@
-import { labels } from './tasks.js';
+import { labels, formatDue, dueTimezoneLabel } from './tasks.js';
 
 const text = value => ({ type: 'raw_text', text: String(value) });
 const person = userId => ({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'user', user_id: userId }] }] });
@@ -48,7 +48,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
       const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Delete']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = task.assigneeId === userId;
-        const due = task.dueDate ? (task.dueDate<new Date().toISOString().slice(0,10)&&task.status==='todo'?'Overdue · ':'')+task.dueDate : '—';
+        const due = formatDue(task,{markOverdue:true});
         return [task.creatorId===userId ? cellAction('ui_edit',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task) : text(task.title),person(mode==='mine'?task.creatorId:task.assigneeId),text(due),
           canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'☐ To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':labels[task.status]),
           ...(showManagement ? task.creatorId===userId ? [cellAction('ui_delete','Delete',mode,task)] : [text('—')] : [])];
@@ -68,7 +68,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
   if(deleted?.channelId===channelId && deleted.creatorId===userId && deleted.deletedAt && deleted.version===state.undoVersion) {
     blocks.push({type:'section',text:{type:'plain_text',text:'Task deleted.'},accessory:button('ui_restore','Undo delete',{id:deleted.id,version:deleted.version})});
   } else { state.undoId=null; state.undoVersion=null; if(notice)blocks.push(section(notice)); }
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · Click task directions to edit, or a status to toggle it. Only assignees can change status.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click task directions to edit, or a status to toggle it. Only assignees can change status.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }

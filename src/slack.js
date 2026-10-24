@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { labels } from './tasks.js';
+import { labels, formatDue, dueTimezoneLabel } from './tasks.js';
 
 export function verifySlack(raw, headers, secret, now = Date.now()) {
   const timestamp = headers['x-slack-request-timestamp'];
@@ -20,7 +20,7 @@ export function taskMessage(task) {
       { type: 'mrkdwn', text: `*Status*\n${task.deletedAt ? 'Deleted' : labels[task.status]}` },
       { type: 'mrkdwn', text: `*Assigned to*\n<@${task.assigneeId}>` },
       { type: 'mrkdwn', text: `*Assigned by*\n<@${task.creatorId}>` },
-      { type: 'mrkdwn', text: `*Due*\n${task.dueDate ?? 'No deadline'}` }
+      { type: 'mrkdwn', text: `*Due*\n${task.dueDate ? formatDue(task)+' ('+dueTimezoneLabel+')' : 'No deadline'}` }
     ] }
   ];
   if (choices.length) blocks.push({ type: 'actions', elements: choices.map(([action, text]) => ({

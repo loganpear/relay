@@ -2,12 +2,12 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { TaskStore, TaskError, parseTask, labels } from './tasks.js';
+import { TaskStore, TaskError, parseTask, labels, formatDue } from './tasks.js';
 import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
 import { homeRequest, publishTaskHome } from './home.js';
 import { handleAppUi, runAppUiEffects } from './ui.js';
 
-const help = 'Create: /task @person Task title --due YYYY-MM-DD\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
+const help = 'Create: /task @person Task title --due YYYY-MM-DD --at HH:MM\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
 
 export function handleCommand(store, form, receiptKey) {
@@ -19,7 +19,7 @@ export function handleCommand(store, form, receiptKey) {
     if (!['mine', 'assigned', 'team', 'all'].includes(mode)) return ephemeral(help);
     const tasks = store.list({ ...context, mode, includeDone: mode === 'all' });
     if (!tasks.length) return ephemeral('No matching tasks in this channel. Create one with /task @person Task title.');
-    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${task.dueDate}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
+    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
   }
   if (form.command !== '/task') throw new TaskError('Unknown command. Use /task or /tasks.');
   if (!text || text === 'help') return ephemeral(help);

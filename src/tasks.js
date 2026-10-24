@@ -5,13 +5,27 @@ import { dirname } from 'node:path';
 export class TaskError extends Error {}
 export const statuses = ['todo', 'done'];
 export const labels = { todo: 'To do', done: 'Done' };
+export const dueTimezone = process.env.TASK_TIMEZONE || 'America/New_York';
+export const dueTimezoneLabel = dueTimezone === 'America/New_York' ? 'Eastern time' : dueTimezone;
+const dueClock = new Intl.DateTimeFormat('en-CA',{timeZone:dueTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+export function formatDue(task,{now=new Date(),markOverdue=false}={}) {
+  if(!task.dueDate)return '—';
+  const result=task.dueDate.slice(5).replace('-','/')+(task.dueTime?' '+task.dueTime:'');
+  const parts=Object.fromEntries(dueClock.formatToParts(now).map(part=>[part.type,part.value]));
+  const today=`${parts.year}-${parts.month}-${parts.day}`,time=`${parts.hour}:${parts.minute}`;
+  const overdue=task.status==='todo'&&(task.dueDate<today||(task.dueDate===today&&task.dueTime&&task.dueTime<time));
+  return (markOverdue&&overdue?'Overdue · ':'')+result;
+}
 export function validateTask(input) {
   const title = String(input.title ?? '').trim();
   if (!title || title.length > 240) throw new TaskError('Give the task a title between 1 and 240 characters.');
   if (!/^[UW][A-Z0-9]+$/.test(input.assigneeId ?? '')) throw new TaskError('Choose a teammate.');
   const dueDate = input.dueDate || null;
   if (dueDate && (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(Date.parse(dueDate)) || new Date(dueDate).toISOString().slice(0, 10) !== dueDate)) throw new TaskError('Use a real due date in YYYY-MM-DD format.');
-  return { title, assigneeId: input.assigneeId, dueDate };
+  const dueTime = input.dueTime || null;
+  if(dueTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dueTime))throw new TaskError('Use a real due time in HH:MM format (00:00–23:59).');
+  if(dueTime && !dueDate)throw new TaskError('Choose a due date before setting a time.');
+  return { title, assigneeId: input.assigneeId, dueDate, dueTime };
 }
 
 export function parseTask(text) {
@@ -29,9 +43,13 @@ export function parseTask(text) {
     }
     title = title.replace(due[0], ' ').trim();
   }
-  if (title.includes('--')) throw new TaskError('Supported option: --due YYYY-MM-DD.');
+  let dueTime=null;
+  const at=title.match(/(?:^|\s)--at\s+(\S+)/);
+  if(at){dueTime=at[1];title=title.replace(at[0],' ').trim();}
+  if (title.includes('--')) throw new TaskError('Supported options: --due YYYY-MM-DD --at HH:MM.');
+  validateTask({title,assigneeId:match[1],dueDate,dueTime});
   if (!title || title.length > 240) throw new TaskError('Give the task a title between 1 and 240 characters.');
-  return { assigneeId: match[1], title, dueDate };
+  return { assigneeId: match[1], title, dueDate, ...(dueTime?{dueTime}:{}) };
 }
 
 export class TaskStore {
@@ -92,6 +110,12 @@ export class TaskStore {
       for (const task of this.db.prepare('SELECT id FROM tasks').all()) this.enqueue(task.id);
       this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('app-ui');
     });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('due-time'))return;
+      if(!this.db.prepare('PRAGMA table_info(tasks)').all().some(c=>c.name==='dueTime'))this.db.exec('ALTER TABLE tasks ADD COLUMN dueTime TEXT');
+      for(const task of this.db.prepare('SELECT id FROM tasks WHERE deletedAt IS NULL AND messageTs IS NOT NULL').all())this.enqueue(task.id);
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('due-time');
+    });
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -109,8 +133,8 @@ export class TaskStore {
       if (receiptKey && this.receipt(receiptKey)) return this.get(this.receipt(receiptKey).taskId, input.teamId);
       input = { ...input, ...validateTask(input) };
       const now = new Date().toISOString();
-      const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,requiresReview,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, 0, now, now);
+      const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,dueTime,requiresReview,createdAt,updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.dueTime ?? null, 0, now, now);
       const id = Number(result.lastInsertRowid);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, input.creatorId, 'created', now);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
@@ -189,7 +213,7 @@ export class TaskStore {
       const now = new Date().toISOString();
       if (action === 'edit' && !task.deletedAt) {
         const data = validateTask(changes);
-        this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,now,id);
+        this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,now,id);
       } else if (action === 'delete' && !task.deletedAt) {
         this.db.prepare('UPDATE tasks SET deletedAt=?,version=version+1,updatedAt=? WHERE id=?').run(now,now,id);
         this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);

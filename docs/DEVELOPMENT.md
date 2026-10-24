@@ -96,3 +96,7 @@ Status, task directions (Edit), and Delete use action_cell buttons. Each button 
 ## Task management from Home
 
 Home uses native Slack modals, users_select, and datepicker inputs. Every mutation rechecks workspace, channel, actor, version, and deletion state against SQLite. Modal submissions are deduplicated by Slack view ID. Delete requires confirmation, hides the record from active queries, and offers an immediate Undo delete button. There is no Trash view; the stored record and history remain intact. Undo checks ownership and the current deletion version. Reopened tasks can be completed again, producing a separate queued completion event for each completion version. Both HTTP and Socket Mode handlers support this UI.
+
+## Due times
+
+Deadlines store an ISO dueDate plus an optional 24-hour dueTime. Displays use MM/DD HH:MM; old date-only tasks keep a null time and display MM/DD. The form includes a native time picker. A time requires a date. TASK_TIMEZONE defaults to America/New_York and is shown in the form; set it before using Relay for a workspace. Changing it changes the interpretation of existing wall-clock deadlines. Overdue comparisons use that timezone, including its daylight-saving rules, rather than the server’s local or UTC date. Slash commands accept --at HH:MM alongside --due YYYY-MM-DD.

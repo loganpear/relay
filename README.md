@@ -14,7 +14,7 @@ Relay is currently an early, self-hosted release. A public **Add to Slack** inst
 
 1. Open the channel your workspace owner enabled for Relay.
 2. Open the channel details, choose **Agents & apps**, and add **Relay** if it isn't there already.
-3. Open **Relay → Home**, click **＋ New task**, and choose a teammate, task title, and optional due date.
+3. Open **Relay → Home**, click **＋ New task**, and choose a teammate, task title, and optional due date and time.
 
 That's all teammates need to get started. There is no separate Relay account or app download.
 
@@ -58,6 +58,8 @@ The assignee clicks **Mark done**. Relay updates the card and posts a completion
 | `/tasks team` | The channel's unfinished tasks |
 | `/tasks all` | The channel's tasks, including completed work |
 
+Deadlines display as **MM/DD HH:MM** in 24-hour Eastern time. A date without a time shows only **MM/DD**.
+
 Task lists are visible only to the person requesting them. Shared task cards stay in the channel.
 
 ## A little more control
@@ -65,10 +67,10 @@ Task lists are visible only to the person requesting them. Shared task cards sta
 **Add a deadline:**
 
 ```text
-/task @alex Update the landing page --due 2026-11-06
+/task @alex Update the landing page --due 2026-11-06 --at 17:30
 ```
 
-Use year-month-day for dates.
+Commands use year-month-day for dates and 24-hour HH:MM for optional times.
 
 ## Access and privacy
 

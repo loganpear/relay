@@ -11,7 +11,7 @@ function action(name,state={},actor='UME'){
  return {type:'block_actions',team:{id:'TTEST'},user:{id:actor},trigger_id:'trigger',view:{type:'home',private_metadata:JSON.stringify(homeState(state))},actions:[{action_id:name,value:JSON.stringify({id:state.selectedId,version:state.selectedVersion})}]};
 }
 function submit(meta,values={},actor='UME',id='VMODAL'){
- return {type:'view_submission',team:{id:'TTEST'},user:{id:actor},view:{id,type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),state:{values:{title:{value:{value:values.title??'Task from Home'}},assignee:{value:{selected_user:values.assigneeId??'UOTHER'}},due_date:{value:{selected_date:values.dueDate??null}}}}}};
+ return {type:'view_submission',team:{id:'TTEST'},user:{id:actor},view:{id,type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),state:{values:{title:{value:{value:values.title??'Task from Home'}},assignee:{value:{selected_user:values.assigneeId??'UOTHER'}},due_date:{value:{selected_date:values.dueDate??null}},due_time:{value:{selected_time:values.dueTime??null}}}}}};
 }
 const select=task=>({mode:'assigned',filter:'all',selectedId:task.id,selectedVersion:task.version});
 test('New task opens a Slack form, saves once, and preserves the current view',()=>{
@@ -127,4 +127,16 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
  const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
  assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_reopen');store.close();
+});
+
+test('Task forms set and clear due times and show missing-date errors inline',()=>{
+ const store=new TaskStore();const open=handleAppUi(store,config,action('ui_new'));
+ assert.equal(open.openModal.view.blocks.find(b=>b.block_id==='due_time').element.type,'timepicker');
+ const meta=JSON.parse(open.openModal.view.private_metadata);
+ const invalid=handleAppUi(store,config,submit(meta,{dueTime:'12:30'},'UME','VTIMEONLY'));assert.ok(invalid.ackPayload.errors.due_date);
+ handleAppUi(store,config,submit(meta,{dueDate:'2026-11-06',dueTime:'12:30'},'UME','VTIMED'));
+ let task=store.list({teamId:'TTEST',channelId:'CTEST'})[0];assert.equal(task.dueTime,'12:30');
+ const edit=handleAppUi(store,config,action('ui_edit',select(task)));assert.equal(edit.openModal.view.blocks.find(b=>b.block_id==='due_time').element.initial_time,'12:30');
+ handleAppUi(store,config,submit(JSON.parse(edit.openModal.view.private_metadata),{dueDate:'2026-11-06'},'UME','VCLEARTIME'));
+ assert.equal(store.get(task.id,'TTEST').dueTime,null);store.close();
 });

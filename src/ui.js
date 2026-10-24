@@ -1,4 +1,4 @@
-import { TaskError, validateTask } from './tasks.js';
+import { TaskError, validateTask, dueTimezone, dueTimezoneLabel } from './tasks.js';
 import { homeRequest, homeState, viewState, section, publishTaskHome } from './home.js';
 
 const plain = text => ({type:'plain_text',text});
@@ -11,7 +11,8 @@ function modal(operation, state, task) {
     input('title','Task',{type:'plain_text_input',action_id:'value',max_length:240,...(task?{initial_value:task.title}:{})}),
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})}),
     input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(task?.dueDate?{initial_date:task.dueDate}:{})},true),
-    {type:'context',elements:[plain('Tasks are posted only in the channel configured for Relay. The assignee marks work done; the assigner gets a completion mention.')]}
+    input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:dueTimezone,placeholder:plain('Choose a time'),...(task?.dueTime?{initial_time:task.dueTime}:{})},true),
+    {type:'context',elements:[plain('Times use '+dueTimezoneLabel+'. Tasks are posted only in the channel configured for Relay. The assignee marks work done; the assigner gets a completion mention.')]}
   ]};
 }
 function failedModal(message){return {response_action:'update',view:{type:'modal',title:plain('Could not save'),close:plain('Close'),blocks:[section(message+' Close this form and refresh Relay before trying again.')]}};}
@@ -29,7 +30,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       if(!payload.view.id)throw new TaskError('This form has no identity.');
       if(meta.operation==='create'||meta.operation==='edit'){
         const values=payload.view.state?.values??{};
-        const changes=validateTask({title:values.title?.value?.value,assigneeId:values.assignee?.value?.selected_user,dueDate:values.due_date?.value?.selected_date});
+        const changes=validateTask({title:values.title?.value?.value,assigneeId:values.assignee?.value?.selected_user,dueDate:values.due_date?.value?.selected_date,dueTime:values.due_time?.value?.selected_time});
         if(meta.operation==='create')store.create({...changes,teamId,channelId:allowedChannelId,creatorId:actorId},key);
         else store.manage({...context,id:meta.taskId,version:meta.version,action:'edit',changes,receiptKey:key});
         return {ackPayload:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
@@ -42,7 +43,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     }catch(error){
       const message=error instanceof TaskError?error.message:'Unable to save this task.';
       if(['create','edit'].includes(meta.operation)){
-        const field=/date/i.test(message)?'due_date':/teammate/i.test(message)?'assignee':'title';
+        const field=/date/i.test(message)?'due_date':/time|HH:MM/i.test(message)?'due_time':/teammate/i.test(message)?'assignee':'title';
         return {ackPayload:{response_action:'errors',errors:{[field]:message}}};
       }
       return {ackPayload:failedModal(message)};
