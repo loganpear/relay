@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError, parseTask, labels } from './tasks.js';
 import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
 import { homeRequest, publishTaskHome } from './home.js';
+import { handleAppUi, runAppUiEffects } from './ui.js';
 
 const help = 'Create: /task @person Task title --due YYYY-MM-DD\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
@@ -29,7 +30,7 @@ export function handleCommand(store, form, receiptKey) {
 export function handleInteraction(store, payload, receiptKey) {
   if (payload.type !== 'block_actions' || payload.actions?.length !== 1) throw new TaskError('Unsupported interaction.');
   const selected = payload.actions[0];
-  if (selected.action_id !== 'task_complete') throw new TaskError('This is an older task button. Use Mark done on the updated card.');
+  if (!['task_complete','task_reopen'].includes(selected.action_id)) throw new TaskError('This is an older task button. Use the updated card.');
   let value;
   try { value = JSON.parse(selected.value); } catch { throw new TaskError('Invalid task button.'); }
   if (!Number.isSafeInteger(value.id) || !Number.isSafeInteger(value.version)) throw new TaskError('Invalid task button.');
@@ -113,11 +114,11 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
       } else {
         const payload = JSON.parse(form.payload ?? '{}');
         if (payload.team?.id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
-        if (payload.view?.type === 'home') {
-          let home;
-          try { home = homeRequest(teamId, allowedChannelId, payload); } catch { /* Ignore invalid pagination. */ }
-          send(res, 200, {});
-          if (home && client) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => {});
+        if (payload.view?.type === 'home' || payload.type === 'view_submission') {
+          const ui=handleAppUi(store,{teamId,allowedChannelId},payload,key);
+          send(res,200,ui?.ackPayload??{});
+          if(ui&&client)void runAppUiEffects(client,store,{teamId,allowedChannelId},ui).catch(()=>{});
+          void flush();
           return;
         }
         if (allowedChannelId && payload.channel?.id !== allowedChannelId) return send(res, 200, {});

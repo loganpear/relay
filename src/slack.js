@@ -12,12 +12,12 @@ export const escapeSlack = text => String(text).replaceAll('&', '&amp;').replace
 
 export function taskMessage(task) {
   const choices = [];
-  if (task.status === 'todo') choices.push(['complete', 'Mark done']);
+  if (!task.deletedAt) choices.push(task.status === 'todo' ? ['complete', 'Mark done'] : ['reopen', 'Reopen']);
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `Relay · Task #${task.id}` } },
     { type: 'section', text: { type: 'plain_text', text: task.title } },
     { type: 'section', fields: [
-      { type: 'mrkdwn', text: `*Status*\n${labels[task.status]}` },
+      { type: 'mrkdwn', text: `*Status*\n${task.deletedAt ? 'In Trash' : labels[task.status]}` },
       { type: 'mrkdwn', text: `*Assigned to*\n<@${task.assigneeId}>` },
       { type: 'mrkdwn', text: `*Assigned by*\n<@${task.creatorId}>` },
       { type: 'mrkdwn', text: `*Due*\n${task.dueDate ?? 'No deadline'}` }
@@ -26,10 +26,10 @@ export function taskMessage(task) {
   if (choices.length) blocks.push({ type: 'actions', elements: choices.map(([action, text]) => ({
     type: 'button', action_id: `task_${action}`, text: { type: 'plain_text', text },
     value: JSON.stringify({ id: task.id, version: task.version }),
-    style: 'primary'
+    ...(action === 'complete' ? { style: 'primary' } : {})
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.status === 'done' ? 'Relay · Done. Completion is sent to the assigner in this task’s thread.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
-  return { text: `Task #${task.id}: ${task.title} — ${labels[task.status]}`, blocks };
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Moved to Trash. The assigner can restore it from Relay → Home → Trash.' : task.status === 'done' ? 'Relay · Done. The assignee or assigner can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
+  return { text: `Task #${task.id}: ${task.title} — ${task.deletedAt ? 'In Trash' : labels[task.status]}`, blocks };
 }
 
 export class SlackClient {
@@ -76,7 +76,7 @@ export async function flushOutbox(store, client) {
     catch (error) { store.deliveryFailed(task.id, error.message, error.retryAfter); }
   }
   for (const task of store.pendingNotifications()) {
-    try { store.notificationDelivered(task.id, await client.notifyCompletion(task)); }
-    catch (error) { store.notificationFailed(task.id, error.message, error.retryAfter); }
+    try { store.notificationDelivered(task.notificationId, await client.notifyCompletion(task)); }
+    catch (error) { store.notificationFailed(task.notificationId, error.message, error.retryAfter); }
   }
 }

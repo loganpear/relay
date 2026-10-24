@@ -68,7 +68,7 @@ The command Request URL is `/slack/commands`; the interactivity Request URL is `
 
 ## Current limits
 
-This is a first single-workspace build. A live self-assigned task was verified in a private Slack test channel: create and update the card in place. The simplified completion flow has automated coverage; see the test suite. The same Slack card updated in place and the outbound queue drained. Testing with a separate assignee account is still pending. It has no OAuth installation flow for multiple workspaces, reminders, recurring tasks, edit/reassignment, or dashboard authentication. Use one service process and one local persistent database, not multiple replicas or an ephemeral filesystem. The local board is a workflow preview, not a production dashboard.
+This is a first single-workspace build. A self-assigned task was manually verified in Slack Home: create, edit its due date, mark done, reopen, move to Trash, and restore. The same channel card updated in place, the completion notice was delivered, and the outbound queue drained. The automated suite also covers authorization, stale edits, duplicate submissions, and delivery retries. Testing with a separate assignee account is still pending. It has no OAuth installation flow for multiple workspaces, reminders, recurring tasks, or dashboard authentication. Use one service process and one local persistent database, not multiple replicas or an ephemeral filesystem. The local board is a workflow preview, not a production dashboard.
 
 Outbox retries preserve changes but cannot promise exactly-once posting if Slack accepts a new card or completion notification and the network loses the response before its timestamp is saved. Requests and receipts are currently retained indefinitely; choose retention and backup policies before wider deployment.
 
@@ -89,4 +89,8 @@ On first startup, the two-status migration preserves Done tasks, maps all other 
 
 ## Personal Home tab
 
-Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. The Home tab provides two buttons and native Slack tables, with 20 rows per page. Queries use the authenticated Slack user plus the configured workspace and channel, include both statuses, and exclude self-assigned work from the assigned-to-others view. Publishing uses views.publish and sends no channel messages. Button values can choose a page and view, but cannot select another user. Reopening Home or clicking either view button refreshes its data.
+Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. The Home tab provides personal and delegated task views, native Slack tables with 20 rows per page, and To do / Done / All filters. Queries use the authenticated Slack user plus the configured workspace and channel, and exclude self-assigned work from the assigned-to-others view. Publishing uses views.publish and sends no channel messages. Button values can choose a page and view, but cannot select another user. Reopening Home or clicking either view button refreshes its data.
+
+## Task management from Home
+
+Home uses native Slack modals, users_select, and datepicker inputs. Task selection and filters are stored in the Home view’s private_metadata; every mutation rechecks workspace, channel, actor, version, and deletion state against SQLite. Modal submissions are deduplicated by Slack view ID. Deleted tasks retain their status and history and are hidden from active queries until restored. Reopened tasks can be completed again, producing a separate queued completion event for each completion version. Both the HTTP and Socket Mode handlers support the UI.

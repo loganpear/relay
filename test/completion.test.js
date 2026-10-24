@@ -19,7 +19,7 @@ test('cards have only To do / Done and one Mark done button', () => {
   assert.equal(actions[0].text.text, 'Mark done');
   assert.equal(actions[0].action_id, 'task_complete');
   assert.doesNotMatch(JSON.stringify(card), /Reviewer|Ready for review|Start task|Approve/);
-  assert.equal(taskMessage(complete(store, task)).blocks.some(b => b.type === 'actions'), false);
+  assert.equal(taskMessage(complete(store, task)).blocks.find(b => b.type === 'actions').elements[0].text.text, 'Reopen');
   store.close();
 });
 

@@ -57,9 +57,9 @@ No package installation is needed. Wait for **Relay connected to Slack**. Leave 
 
 In your private test channel:
 
-1. Type `/task @yourself Try Relay` and select yourself from Slack's suggestions.
-2. Click **Mark done**. The card should show **Done**.
-3. Open the task’s thread to see the completion mention to the assigner.
+1. Open **Relay → Home → ＋ New task**. Enter a title, select yourself, and click **Create task**.
+2. Select the task below the Home table and click **Mark done**. Switch the filter to **Done** to see it.
+3. Open the task’s card in the test channel and check its thread for the completion mention.
 4. Type `/tasks all` to see the saved task.
 
 Then repeat with a teammate: assign them a task, have them mark it done, and check the completion mention you receive. Your team can use the [everyday instructions](../README.md#your-first-task) from here.

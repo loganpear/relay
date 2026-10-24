@@ -14,7 +14,7 @@ Relay is currently an early, self-hosted release. A public **Add to Slack** inst
 
 1. Open the channel your workspace owner enabled for Relay.
 2. Open the channel details, choose **Agents & apps**, and add **Relay** if it isn't there already.
-3. Type `/task`, choose a teammate, and describe the work.
+3. Open **Relay → Home**, click **＋ New task**, and choose a teammate, task title, and optional due date.
 
 That's all teammates need to get started. There is no separate Relay account or app download.
 
@@ -25,9 +25,23 @@ Open **Relay → Home** and choose:
 - **Show tasks assigned to me** — your tasks, who assigned them, their To do / Done status, and due dates.
 - **Show tasks I’ve assigned to others** — work you handed to other people, with the assignee, status, and due date. Self-assigned tasks stay in your first view.
 
-Each table includes completed work and puts unfinished tasks first. Use **Next** and **Previous** for longer lists. Click either button again to refresh. These views are private to you and show tasks from the channel enabled for Relay.
+Use the **To do**, **Done**, or **All** filter to choose what appears. The view opens on To do. Use **Next** and **Previous** for longer lists, and **Refresh** to pick up changes from teammates. These views are private to you and show tasks from the channel enabled for Relay.
+
+Choose a task below the table to manage it:
+
+- **Edit task:** the assigner can change the title, teammate, or due date.
+- **Mark done:** the assignee completes the task and notifies the assigner.
+- **Reopen task:** the assigner or assignee returns completed work to To do.
+- **Delete task:** the assigner confirms moving it to Trash.
+- **Trash → Restore task:** the assigner brings a deleted task back, with its history intact.
+
+The shared channel card updates to match. Edits keep your current view and filter, and Relay rejects an outdated form rather than overwriting newer changes.
 
 ## Your first task
+
+In **Relay → Home**, click **＋ New task**, enter a title, select a teammate, and optionally pick a due date. Click **Create task**. No slash command is required.
+
+Prefer a shortcut? In your Relay channel:
 
 ```text
 /task @alex Update the landing page
@@ -64,7 +78,7 @@ Use year-month-day for dates.
 
 Relay requests permission to receive its commands and post its task cards. It does not request permission to read channel history or your workspace's user directory.
 
-Only the assignee can mark a task done. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
+Only the assignee can mark a task done. The assigner can edit, delete, and restore it; either person can reopen it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
 
 ## Building on Relay
 

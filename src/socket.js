@@ -3,6 +3,7 @@ import { TaskStore, TaskError } from './tasks.js';
 import { SlackClient, flushOutbox } from './slack.js';
 import { handleCommand, handleInteraction } from './server.js';
 import { homeRequest, publishTaskHome } from './home.js';
+import { handleAppUi, runAppUiEffects } from './ui.js';
 
 export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
   const ack = { envelope_id: envelope.envelope_id };
@@ -12,10 +13,11 @@ export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
     const home = homeRequest(teamId, allowedChannelId, payload, true);
     return { ack, ...(home ? { home } : {}) };
   }
-  if (envelope.type === 'interactive' && payload.view?.type === 'home') {
+  if (envelope.type === 'interactive' && (payload.view?.type === 'home' || payload.type === 'view_submission')) {
     try {
-      const home = homeRequest(teamId, allowedChannelId, payload);
-      return { ack, ...(home ? { home } : {}) };
+      const ui = handleAppUi(store,{teamId,allowedChannelId},payload,`socket:${envelope.envelope_id}`);
+      if (ui?.ackPayload && envelope.accepts_response_payload) ack.payload=ui.ackPayload;
+      return {ack,...(ui?.home?{home:ui.home}:{}),...(ui?.openModal?{openModal:ui.openModal}:{})};
     } catch { return { ack }; }
   }
   const actualTeam = envelope.type === 'slash_commands' ? payload.team_id : payload.team?.id;
@@ -80,9 +82,9 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
           }
           if (envelope.type === 'disconnect') { current.close(); retry(); return; }
           if (!envelope.envelope_id) return;
-          const { ack, feedback, home } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
+          const { ack, feedback, home, openModal } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
           current.send(JSON.stringify(ack));
-          if (home) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => logger.error('Relay could not refresh the Home tab. Reopen Home or try Show my task status again.'));
+          if (home || openModal) void runAppUiEffects(client,store,{teamId,allowedChannelId},{home,openModal}).catch(() => logger.error('Relay could not refresh Home. Use Refresh or reopen Home.'));
           if (feedback?.user) void client.call('chat.postEphemeral', feedback).catch(() => {});
           void flush();
         } catch { logger.error('Relay could not process a socket event.'); }
