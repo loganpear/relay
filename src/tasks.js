@@ -30,25 +30,41 @@ export function validateTask(input) {
   return { title, assigneeId: input.assigneeId, dueDate, dueTime };
 }
 
-export function parseTask(text) {
+export function parseTask(text, {now=new Date()}={}) {
   const match = text.trim().match(/^<@([A-Z0-9]+)(?:\|[^>]+)?>\s+(.+)$/s);
-  if (!match) throw new TaskError('Use /task @someone Task title --due YYYY-MM-DD. Select the person from Slack’s suggestions.');
+  if (!match) throw new TaskError('Use /task @someone Task title --due MM/DD HH:MM AM/PM. Select the person from Slack’s suggestions.');
   let title = match[2].trim();
   // Accept the former flag on old saved commands; completion is now always direct.
   title = title.replace(/(?:^|\s)--no-review(?=\s|$)/g, ' ').trim();
-  let dueDate = null;
-  const due = title.match(/(?:^|\s)--due\s+(\S+)/);
-  if (due) {
-    dueDate = due[1];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(Date.parse(dueDate)) || new Date(dueDate).toISOString().slice(0, 10) !== dueDate) {
-      throw new TaskError('Use a real due date in YYYY-MM-DD format.');
+  let dueDate = null, dueTime = null;
+  const shortDue = title.match(/(?:^|\s)--due\s+(\d{2})\/(\d{2})\s+(\d{1,2}):([0-5]\d)\s+(AM|PM)(?=\s|$)/i);
+  if (shortDue) {
+    const [,month,day,hour,minute,period] = shortDue;
+    if (Number(hour)<1 || Number(hour)>12) throw new TaskError('Use --due MM/DD HH:MM AM/PM, with an hour from 1 to 12.');
+    dueTime = `${String(Number(hour)%12+(period.toUpperCase()==='PM'?12:0)).padStart(2,'0')}:${minute}`;
+    const parts = Object.fromEntries(dueClock.formatToParts(now).map(part=>[part.type,part.value]));
+    const current = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+    // Search through the next leap-year cycle so February 29 works too.
+    for(let year=Number(parts.year);year<=Number(parts.year)+8;year++) {
+      const candidate = `${year}-${month}-${day}`;
+      const parsed = new Date(candidate);
+      if(Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0,10)===candidate && `${candidate} ${dueTime}`>current) { dueDate=candidate; break; }
     }
-    title = title.replace(due[0], ' ').trim();
+    if(!dueDate) throw new TaskError('Use a real due date: --due MM/DD HH:MM AM/PM.');
+    title=title.replace(shortDue[0],' ').trim();
+    if(/(?:^|\s)--at(?:\s|$)/.test(title)) throw new TaskError('Include the time in --due MM/DD HH:MM AM/PM.');
+  } else {
+    // Keep older ISO commands working, including saved commands and demo input.
+    const due = title.match(/(?:^|\s)--due\s+(\S+)/);
+    if(due) {
+      dueDate=due[1];
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(Date.parse(dueDate)) || new Date(dueDate).toISOString().slice(0,10)!==dueDate) throw new TaskError('Use a real due date: --due MM/DD HH:MM AM/PM.');
+      title=title.replace(due[0],' ').trim();
+    }
+    const at=title.match(/(?:^|\s)--at\s+(\S+)/);
+    if(at){dueTime=at[1];title=title.replace(at[0],' ').trim();}
   }
-  let dueTime=null;
-  const at=title.match(/(?:^|\s)--at\s+(\S+)/);
-  if(at){dueTime=at[1];title=title.replace(at[0],' ').trim();}
-  if (title.includes('--')) throw new TaskError('Supported options: --due YYYY-MM-DD --at HH:MM.');
+  if (title.includes('--')) throw new TaskError('Supported option: --due MM/DD HH:MM AM/PM.');
   validateTask({title,assigneeId:match[1],dueDate,dueTime});
   if (!title || title.length > 240) throw new TaskError('Give the task a title between 1 and 240 characters.');
   return { assigneeId: match[1], title, dueDate, ...(dueTime?{dueTime}:{}) };

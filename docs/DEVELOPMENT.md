@@ -21,7 +21,7 @@ npm test
 ## Slack commands
 
 ```text
-/task @alex Polish the landing page --due 2026-11-06
+/task @alex Polish the landing page --due 11/06 05:30 PM
 /task @sam Update the team links
 /tasks mine
 /tasks team
@@ -99,4 +99,4 @@ Home uses native Slack modals, users_select, and datepicker inputs. Every mutati
 
 ## Due times
 
-Deadlines store an ISO dueDate plus an optional 24-hour dueTime. Displays use MM/DD h:mm AM/PM; old date-only tasks keep a null time and display MM/DD. The form includes a native time picker. A time requires a date. TASK_TIMEZONE defaults to America/New_York and is shown in the form; set it before using Relay for a workspace. Changing it changes the interpretation of existing wall-clock deadlines. Overdue comparisons use that timezone, including its daylight-saving rules, rather than the server’s local or UTC date. Slash commands accept --at HH:MM alongside --due YYYY-MM-DD.
+Deadlines store an ISO dueDate plus an optional 24-hour dueTime. Displays use MM/DD h:mm AM/PM; old date-only tasks keep a null time and display MM/DD. The form includes a native time picker. A time requires a date. TASK_TIMEZONE defaults to America/New_York and is shown in the form; set it before using Relay for a workspace. Changing it changes the interpretation of existing wall-clock deadlines. Overdue comparisons use that timezone, including its daylight-saving rules, rather than the server’s local or UTC date. Slash commands accept --due MM/DD HH:MM AM/PM and infer the next future occurrence in TASK_TIMEZONE, including leap years. Storage remains ISO date and 24-hour time. Older ISO --due YYYY-MM-DD and --at HH:MM commands remain supported for compatibility.

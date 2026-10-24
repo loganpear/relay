@@ -67,10 +67,12 @@ Task lists are visible only to the person requesting them. Shared task cards sta
 **Add a deadline:**
 
 ```text
-/task @alex Update the landing page --due 2026-11-06 --at 17:30
+/task @alex Update the landing page --due 11/06 05:30 PM
 ```
 
-Commands use year-month-day for dates and 24-hour HH:MM for optional times.
+Deadlines use Eastern time. Relay picks the soonest future year for that date and time; a deadline already passed this year uses next year (February 29 uses the next leap year).
+
+Use a two-digit month and day, followed by a 12-hour time and AM or PM.
 
 ## Access and privacy
 

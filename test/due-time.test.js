@@ -41,3 +41,17 @@ test('Timed deadlines persist, edits can clear times, and migration preserves da
   task=store.get(task.id,'TTEST');assert.equal(task.dueDate,'2026-11-06');assert.equal(task.dueTime,null);assert.equal(task.status,'todo');assert.equal(store.history(task.id).length,2);
  }finally{store.close();rmSync(dir,{recursive:true});}
 });
+
+test('Short slash deadlines infer the next future year in Eastern time',()=>{
+ const parse=(deadline,now='2026-10-24T18:00:00Z')=>parseTask('<@UOTHER> Ship --due '+deadline,{now:new Date(now)});
+ assert.deepEqual(parse('11/06 05:30 PM'),{assigneeId:'UOTHER',title:'Ship',dueDate:'2026-11-06',dueTime:'17:30'});
+ assert.equal(parse('01/05 09:00 AM').dueDate,'2027-01-05');
+ assert.equal(parse('10/24 03:00 PM').dueDate,'2026-10-24');
+ assert.equal(parse('10/24 01:00 PM').dueDate,'2027-10-24');
+ assert.equal(parse('10/24 02:00 PM').dueDate,'2027-10-24');
+ assert.equal(parse('02/29 12:00 AM').dueDate,'2028-02-29');
+ assert.equal(parse('02/29 12:00 AM').dueTime,'00:00');
+ assert.equal(parse('11/06 12:00 pm').dueTime,'12:00');
+ assert.equal(parse('12/31 11:59 PM','2027-01-01T02:00:00Z').dueDate,'2026-12-31');
+ for(const value of ['02/30 05:00 PM','13/01 05:00 PM','11/06 00:30 AM','11/06 13:00 PM','11/06 05:60 PM','11/06 05:00','11/06','11/06 05:00 PM --at 12:00','11/06 05:00 PM --due 12/01 06:00 PM'])assert.throws(()=>parse(value),/due|option|hour/);
+});
