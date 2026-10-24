@@ -121,7 +121,7 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
  assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
  const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'});
- assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_choose_status');store.close();
+ assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].type,'raw_text');store.close();
 });
 
 test('Task forms set and clear due times and show missing-date errors inline',()=>{
@@ -238,4 +238,21 @@ test('Table choice windows save explicit status and archive values with role and
  const reopen=open('status','UOTHER','mine').openModal.view;save(reopen,'todo','UOTHER','VREOPEN');task=store.get(task.id,'TTEST');
  archive=open('archive','UME','assigned').openModal.view;save(archive,'archived','UME','VSTOP');task=store.get(task.id,'TTEST');
  assert.equal(open('status','UOTHER','mine').openModal,undefined);assert.equal(task.status,'todo');store.close();
+});
+
+
+test('Past status cells are read-only and old Past controls and forms cannot change status',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
+ const state={...select(task),period:'past'};
+ for(const name of ['ui_choose_status','ui_reopen','ui_complete']){
+  const result=handleAppUi(store,config,action(name+':mine:'+task.id,state,'UOTHER'));
+  assert.equal(result.openModal,undefined);assert.match(result.home.notice,/Current/);
+ }
+ const dropdown=action('ui_status:mine:'+task.id,state,'UOTHER');dropdown.actions[0].selected_option={value:JSON.stringify({id:task.id,version:task.version,status:'todo'})};
+ assert.match(handleAppUi(store,config,dropdown).home.notice,/Current/);
+ const form=submit({operation:'status',taskId:task.id,version:task.version,state},{},'UOTHER','VPAST');form.view.state.values={choice:{value:{selected_option:{value:'todo'}}}};
+ assert.match(handleAppUi(store,config,form).ackPayload.errors.choice,/Current/);
+ const table=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'}).blocks.find(b=>b.type==='data_table');
+ assert.deepEqual(table.rows[1][3],{type:'raw_text',text:'✅ Done'});assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,task.version);store.close();
 });

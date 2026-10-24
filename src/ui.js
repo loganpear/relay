@@ -67,6 +67,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
         if(store.receipt(key))return {ackPayload:{},home};
         if(task.version!==meta.version)throw new TaskError('This task changed. Close this window and refresh Relay.');
         if(meta.operation==='status'){
+          if(state.period==='past')throw new TaskError('Move this task to Current before changing its status.');
           if(!['todo','done'].includes(choice)||task.deletedAt||(task.status==='todo'&&task.archivedAt))throw new TaskError('Choose To do or Done on an active task.');
           if(choice===task.status)return {ackPayload:{},home};
           store.transition({...context,id:task.id,version:meta.version,action:choice==='done'?'complete':'reopen',receiptKey:key});
@@ -141,6 +142,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
     if(name==='ui_details')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state,action.action_id.split(':')[1]||'assigned')}};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
+    if(state.period==='past'&&['ui_choose_status','ui_status','ui_complete','ui_reopen'].includes(name))throw new TaskError('Move this task to Current before changing its status.');
     if(['ui_choose_status','ui_choose_archive'].includes(name)){
       const source=action.action_id.split(':')[1];
       if(name==='ui_choose_status'&&(source!=='mine'||task.assigneeId!==actorId||task.deletedAt||(task.status==='todo'&&task.archivedAt)))throw new TaskError('Only the assignee can change status on an active task.');
