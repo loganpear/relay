@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TaskStore} from '../src/tasks.js';
+import {TaskStore,isTaskArchived} from '../src/tasks.js';
 import {taskHome,homeRequest,homeState} from '../src/home.js';
 import {handleAppUi} from '../src/ui.js';
 const base={teamId:'TTEST',channelId:'CTEST',creatorId:'UCREATOR',assigneeId:'UASSIGNEE',title:'Lifecycle test'};
@@ -13,6 +13,7 @@ test('Completion leaves assignee Current immediately and assigner Current exactl
  const store=new TaskStore();let task=store.create(base);
  task=store.transition({...context,id:task.id,actorId:base.assigneeId,version:task.version,action:'complete'});
  const completed=Date.parse(task.completedAt);
+ assert.equal(isTaskArchived(task,new Date(completed+week-1)),false);assert.equal(isTaskArchived(task,new Date(completed+week)),true);
  assert.equal(page(store,base.assigneeId,'mine','current').total,0);assert.equal(page(store,base.assigneeId,'mine','past').total,1);
  assert.equal(page(store,base.creatorId,'assigned','current',new Date(completed+week-1)).total,1);
  assert.equal(page(store,base.creatorId,'assigned','current',new Date(completed+week)).total,0);
@@ -39,7 +40,7 @@ test('Archived work stays readable in Past and only the creator can reactivate i
  const store=new TaskStore();let task=store.create({...base,details:'Keep these requirements'});
  task=store.manage({...context,id:task.id,version:task.version,action:'archive'});
  for(const [user,direction] of [[base.creatorId,'assigned'],[base.assigneeId,'mine']]){assert.equal(page(store,user,direction,'current').total,0);assert.equal(page(store,user,direction,'past').total,1);}
- const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1].length,5);
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'🔲 To do');assert.equal(mine.rows[1].length,5);
  const view=handleAppUi(store,config,action(task,'ui_details:mine:'+task.id,base.assigneeId,{period:'past'})).openModal.view;assert.match(JSON.stringify(view),/Keep these requirements/);assert.equal(view.blocks.some(b=>b.type==='actions'),false);
  assert.match(handleAppUi(store,config,action(task,'ui_unarchive',base.assigneeId,{period:'past'})).home.notice,/assigner/);
  handleAppUi(store,config,action(task,'ui_unarchive',base.creatorId,{period:'past'}));assert.equal(store.get(task.id,base.teamId).deletedAt,null);assert.equal(page(store,base.assigneeId,'mine','current').total,1);store.close();
@@ -74,9 +75,9 @@ test('Archiving To do stops work for both people without completion and can be r
  assert.equal(store.list({...base,userId:base.assigneeId,mode:'mine'}).length,0);
  assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,0);
  assert.throws(()=>store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'}),/archived/);
- const card=taskMessage(task);assert.equal(card.blocks.some(b=>b.type==='actions'),false);assert.match(card.text,/Archived/);
- const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1][3].element,undefined);
- const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][5].element.text.text,'Move to Current');
+ const card=taskMessage(task);assert.equal(card.blocks.some(b=>b.type==='actions'),false);assert.match(card.text,/To do · Archived/);assert.equal(card.blocks[2].fields[0].text,'*Status*\nTo do');assert.equal(card.blocks[2].fields[1].text,'*Archived*\nArchived');
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'🔲 To do');assert.equal(mine.rows[1][3].element,undefined);
+ const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][5].element.text.text,'Archived');
  task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});
  assert.equal(task.status,'todo');assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
  assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','current').total,1);

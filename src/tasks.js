@@ -5,6 +5,12 @@ import { dirname } from 'node:path';
 export class TaskError extends Error {}
 export const statuses = ['todo', 'done'];
 export const labels = { todo: 'To do', done: 'Done' };
+export function isTaskArchived(task,now=new Date()) {
+  if(task.deletedAt||task.archivedAt)return true;
+  if(task.status!=='done'||!task.completedAt)return false;
+  const until=task.creatorCurrentUntil?Date.parse(task.creatorCurrentUntil):Date.parse(task.completedAt)+7*24*60*60*1000;
+  return until<=now.getTime();
+}
 export const dueTimezone = process.env.TASK_TIMEZONE || 'America/New_York';
 export const dueTimezoneLabel = dueTimezone === 'America/New_York' ? 'Eastern time' : dueTimezone;
 const dueClock = new Intl.DateTimeFormat('en-CA',{timeZone:dueTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});

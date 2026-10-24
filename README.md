@@ -23,15 +23,15 @@ That's all teammates need to get started. There is no separate Relay account or 
 Open **Relay → Home**. **Current** shows two tables:
 
 - **Assigned to you** — unfinished work assigned to you. Marking it Done moves it to your Past list immediately. A confirmation at the top names the task and includes **View Past** so you can find it again.
-- **Assigned by you** — work you created. Completed tasks stay here for seven days after completion so you can see the result; click **Archive** to move them to your Past list sooner.
+- **Assigned by you** — work you created. Completed tasks stay here for seven days after completion so you can see the result; click **Active** in the **Archived** column to move them to your Past list sooner.
 
 Switch to **Past** to find completed and archived work. Both Past tables include **Created at**, with the original creation date, year, and time in Eastern time. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.
 
-Only assignees can toggle **🔲 To do / ✅ Done**, including reopening work from Past. Reopening brings the task back to both Current lists and clears its archive state. Completing work mentions the assigner in the task’s channel thread. Archiving **Done** only affects the assigner’s list. Archiving **To do** stops the work for both people: it moves to both Past lists marked **Archived**, and cannot be completed until the assigner chooses **Move to Current**. Archiving sends no completion notification. **Move to Current** reactivates an archived To do task for both people; for completed tasks it gives the assigner another seven days in Current without changing status.
+Only assignees can toggle **🔲 To do / ✅ Done**, including reopening work from Past. Reopening brings the task back to both Current lists and clears its archive state. Completing work mentions the assigner in the task’s channel thread. Archiving **Done** only affects the assigner’s list. Archiving **To do** stops the work for both people: it moves to both Past lists with **Archived** set to **Archived**, and cannot be completed until the assigner clicks **Archived** to set it back to **Active**. Archiving sends no completion notification. Setting **Archived** back to **Active** reactivates an archived To do task for both people; for completed tasks it gives the assigner another seven days in Current without changing status.
 
 Click a **task name** for requirements and notes (plus attached images when uploads are enabled). Details opened from **Assigned to you** are read-only, including self-assigned tasks. The assigner can open it under **Assigned by you** and choose **Edit**. The **Due** cell there also opens the deadline editor.
 
-For mistakes or canceled work, use **Archive**. Task details and history stay available in Past; the assigner can choose **Move to Current** to reactivate work. There is no separate Delete or Trash flow.
+For mistakes or canceled work, use **Archive**. Task details and history stay available in Past; the assigner can set **Archived** back to **Active** to reactivate work. There is no separate Delete or Trash flow.
 
 **＋ New task** and **Refresh** stay at the bottom. Self-assigned tasks follow each table’s role: after completion they are Past under Assigned to you and remain Current under Assigned by you for up to seven days.
 
@@ -97,3 +97,5 @@ Want to run the demo, contribute code, or host your own copy? See the [developer
 ## License
 
 [MIT](LICENSE).
+
+The **Status** column always shows **To do** or **Done**. Archiving is separate: the assigner’s **Archived** column shows **Active** or **Archived**; click it to switch. Archived unfinished tasks keep their To do status while work is suspended.

@@ -1,4 +1,4 @@
-import { TaskError, validateTask, dueTimezone, dueTimezoneLabel, taskImages, validateDetails, formatDue } from './tasks.js';
+import { TaskError, validateTask, dueTimezone, dueTimezoneLabel, taskImages, validateDetails, formatDue, isTaskArchived } from './tasks.js';
 import { homeRequest, homeState, viewState, section, button, publishTaskHome } from './home.js';
 
 const plain = text => ({type:'plain_text',text});
@@ -9,7 +9,8 @@ export function taskDetails(task,actorId,state={},source='assigned') {
   const blocks=[section(task.title),{type:'section',fields:[
     {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
     {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
-    {type:'plain_text',text:`Status: ${task.deletedAt?'Archived':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'}`},
+    {type:'plain_text',text:`Status: ${task.status==='done'?'✅ Done':'🔲 To do'}`},
+    {type:'plain_text',text:`Archived: ${isTaskArchived(task)?'Archived':'Active'}`},
     {type:'plain_text',text:`Due: ${formatDue(task)} (${dueTimezoneLabel})`}
   ]},{type:'divider'}];
   const details=task.details||'No additional details yet.';
