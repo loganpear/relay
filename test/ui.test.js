@@ -79,7 +79,7 @@ test('Inline row controls respect ownership and carry independent task identitie
  const store=new TaskStore();let task=store.create(base);
  const view=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',...select(task)});
  const allActions=view.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(allActions.includes('ui_details'));assert.ok(allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
+ assert.ok(allActions.includes('ui_details'));assert.ok(!allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
  const assigneeView=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',filter:'all',selectedId:task.id});
  const theirActions=assigneeView.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
  assert.ok(theirActions.includes('ui_complete'));assert.ok(theirActions.includes('ui_details'));
@@ -122,10 +122,10 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
  const row=owner.blocks.find(b=>b.type==='data_table').rows[1];
  assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
- assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_delete');
+ assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_archive');
  const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
  assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
- const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
+ const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'});
  assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_reopen');store.close();
 });
 

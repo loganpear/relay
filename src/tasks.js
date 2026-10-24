@@ -169,6 +169,13 @@ export class TaskStore {
       if(!columns.includes('images'))this.db.exec("ALTER TABLE tasks ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
       this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('task-details');
     });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('task-lifecycle'))return;
+      const columns=this.db.prepare('PRAGMA table_info(tasks)').all().map(c=>c.name);
+      for(const name of ['completedAt','archivedAt','creatorCurrentUntil'])if(!columns.includes(name))this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} TEXT`);
+      this.db.exec("UPDATE tasks SET completedAt=coalesce((SELECT max(createdAt) FROM history WHERE taskId=tasks.id AND action='complete'),updatedAt) WHERE status='done' AND completedAt IS NULL");
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('task-lifecycle');
+    });
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -201,12 +208,12 @@ export class TaskStore {
       if (!task || task.channelId !== channelId) throw new TaskError('That task is not available in this channel.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
-      if (task.deletedAt) throw new TaskError('This task is in Trash. Its assigner can restore it.');
+      if (task.deletedAt) throw new TaskError('This task was deleted. Its assigner can restore it from Past.');
       const canComplete = action === 'complete' && task.status === 'todo' && actorId === task.assigneeId;
       const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.assigneeId;
       if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can change this task’s status.');
       const now = new Date().toISOString();
-      this.db.prepare('UPDATE tasks SET status=?,version=version+1,updatedAt=? WHERE id=?').run(canComplete ? 'done' : 'todo', now, id);
+      this.db.prepare('UPDATE tasks SET status=?,completedAt=?,archivedAt=NULL,creatorCurrentUntil=NULL,version=version+1,updatedAt=? WHERE id=?').run(canComplete ? 'done' : 'todo', canComplete?now:null, now, id);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, actorId, action, now);
       if (canComplete) this.db.prepare('INSERT INTO completion_notifications(taskId,version,title,creatorId,assigneeId) VALUES (?,?,?,?,?)').run(id,task.version+1,task.title,task.creatorId,task.assigneeId);
       else this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);
@@ -224,17 +231,23 @@ export class TaskStore {
     return this.db.prepare(sql + ' ORDER BY createdAt DESC,id DESC LIMIT 50').all(...args);
   }
   history(id) { return this.db.prepare('SELECT * FROM history WHERE taskId=? ORDER BY id').all(id); }
-  personalPage({ teamId, channelId, userId, direction, page = 0, othersOnly = false, filter = 'all', size = 20, recentFirst = false }) {
-    if (!teamId || !channelId || !userId || !['mine', 'assigned', 'trash'].includes(direction) || !['todo','done','all'].includes(filter)) throw new TaskError('Invalid personal task query.');
+  personalPage({ teamId, channelId, userId, direction, page = 0, othersOnly = false, filter = 'all', size = 20, recentFirst = false, period = 'all', now = new Date() }) {
+    if (!teamId || !channelId || !userId || !['mine', 'assigned', 'trash'].includes(direction) || !['todo','done','all'].includes(filter) || !['current','past','all'].includes(period)) throw new TaskError('Invalid personal task query.');
     const column = direction === 'mine' ? 'assigneeId' : 'creatorId';
-    const where = `teamId=? AND channelId=? AND ${column}=?${direction === 'assigned' && othersOnly ? ' AND assigneeId!=?' : ''} AND deletedAt IS ${direction === 'trash' ? 'NOT ' : ''}NULL${direction !== 'trash' && filter !== 'all' ? ' AND status=?' : ''}`;
+    let where = `teamId=? AND channelId=? AND ${column}=?${direction === 'assigned' && othersOnly ? ' AND assigneeId!=?' : ''} AND deletedAt IS ${direction === 'trash' ? 'NOT ' : ''}NULL${direction !== 'trash' && filter !== 'all' ? ' AND status=?' : ''}`;
     const args = [teamId, channelId, userId, ...(direction === 'assigned' && othersOnly ? [userId] : [])];
     if (direction !== 'trash' && filter !== 'all') args.push(filter);
+    if(period!=='all'&&direction!=='trash') {
+      const role = direction==='mine'?'assigneeId':'creatorId';
+      const current = direction==='mine' ? "deletedAt IS NULL AND status='todo'" : "deletedAt IS NULL AND archivedAt IS NULL AND (status='todo' OR coalesce(creatorCurrentUntil,strftime('%Y-%m-%dT%H:%M:%fZ',completedAt,'+7 days'))>?)";
+      where=`teamId=? AND channelId=? AND ${role}=? AND ${period==='past'?'NOT ':''}(${current})`;
+      args.length=0;args.push(teamId,channelId,userId);if(direction==='assigned')args.push(now.toISOString());
+    }
     const summary = this.db.prepare(`SELECT count(*) AS total,coalesce(sum(status='done'),0) AS done FROM tasks WHERE ${where}`).get(...args);
     size = Number.isSafeInteger(size) ? Math.max(1,Math.min(20,size)) : 20;
     const lastPage = Math.max(0, Math.ceil(summary.total / size) - 1);
     const current = Math.min(lastPage, Number.isSafeInteger(page) ? Math.max(0, page) : 0);
-    const tasks = this.db.prepare(`SELECT * FROM tasks WHERE ${where} ORDER BY ${recentFirst ? '' : "CASE WHEN status='todo' THEN 0 ELSE 1 END,"}createdAt DESC,id DESC LIMIT ? OFFSET ?`).all(...args, size, current * size);
+    const tasks = this.db.prepare(`SELECT * FROM tasks WHERE ${where} ORDER BY ${period==='past'?"coalesce(deletedAt,archivedAt,completedAt,updatedAt) DESC,":''}${recentFirst ? '' : "CASE WHEN status='todo' THEN 0 ELSE 1 END,"}createdAt DESC,id DESC LIMIT ? OFFSET ?`).all(...args, size, current * size);
     return { ...summary, tasks, page: current, lastPage, size };
   }
   pending() { return this.db.prepare('SELECT o.*,t.teamId FROM outbox o JOIN tasks t ON t.id=o.taskId WHERE nextAttempt<=? ORDER BY taskId LIMIT 10').all(Date.now()); }
@@ -268,6 +281,8 @@ export class TaskStore {
         const data = validateTask(changes);
         const extra=validateDetails(changes.details??task.details,changes.images??taskImages(task));
         this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,details=?,images=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,extra.details,JSON.stringify(extra.images),now,id);
+      } else if (['archive','unarchive'].includes(action) && !task.deletedAt && task.status==='done') {
+        this.db.prepare('UPDATE tasks SET archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
       } else if (action === 'delete' && !task.deletedAt) {
         this.db.prepare('UPDATE tasks SET deletedAt=?,version=version+1,updatedAt=? WHERE id=?').run(now,now,id);
         this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);

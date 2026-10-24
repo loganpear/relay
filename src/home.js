@@ -5,7 +5,7 @@ const person = userId => ({ type: 'rich_text', elements: [{ type: 'rich_text_sec
 export const section = value => ({ type: 'section', text: { type: 'plain_text', text: value } });
 export const button = (actionId, label, value, extra = {}) => ({ type: 'button', action_id: actionId, text: { type: 'plain_text', text: label }, value: JSON.stringify(value), ...extra });
 export function homeState(value = {}) {
-  const state = {};
+  const state = {period:value.period==='past'?'past':'current'};
   for (const mode of ['mine','assigned']) {
     state[`${mode}Expanded`] = value[`${mode}Expanded`] === true;
     state[`${mode}Page`] = state[`${mode}Expanded`] && Number.isSafeInteger(value[`${mode}Page`]) ? Math.max(0,value[`${mode}Page`]) : 0;
@@ -30,28 +30,31 @@ export function homeRequest(teamId, allowedChannelId, payload, event = false) {
     const [,operation,mode] = match;
     if (operation === 'expand' || operation === 'collapse') { state[`${mode}Expanded`] = operation === 'expand'; state[`${mode}Page`] = 0; }
     else state[`${mode}Page`] = Math.max(0,state[`${mode}Page`] + (operation === 'next' ? 1 : -1));
+  } else if (['home_current','home_past'].includes(action.action_id)) {
+    state.period=action.action_id==='home_past'?'past':'current';
+    for(const mode of ['mine','assigned']){state[`${mode}Expanded`]=false;state[`${mode}Page`]=0;}
   } else if (action.action_id !== 'home_refresh') return null;
   return { userId: payload.user.id, ...homeState(state) };
 }
 const cellAction = (action, label, mode, task) => ({ type:'action_cell',element:button(`${action}:${mode}:${task.id}`,label,{id:task.id,version:task.version}),fallback:text(label) });
 export function taskHome(store, { teamId, channelId, userId, notice, ...input }) {
   const state = homeState(input);
-  const blocks = [];
+  const blocks = [{type:'actions',elements:[button('home_current','Current',{},state.period==='current'?{style:'primary'}:{}),button('home_past','Past',{},state.period==='past'?{style:'primary'}:{})]}];
   for (const mode of ['mine','assigned']) {
     const expanded = state[`${mode}Expanded`];
-    const data = store.personalPage({teamId,channelId,userId,direction:mode,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
+    const data = store.personalPage({teamId,channelId,userId,direction:mode,period:state.period,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
     state[`${mode}Page`] = data.page;
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
-    if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(mode==='mine'?'No tasks assigned to you yet.':'No tasks assigned by you yet.'));
+    if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(state.period==='past'?'No past tasks yet.':mode==='mine'?"You’re all caught up.":'No current tasks assigned by you.'));
     else {
       const showManagement = mode === 'assigned';
-      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Delete']:[])];
+      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Action']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
-        const canToggle = mode === 'mine' && task.assigneeId === userId;
+        const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt;
         const due = formatDue(task,{markOverdue:true});
-        return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
-          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
-          ...(showManagement ? task.creatorId===userId ? [cellAction('ui_delete','Delete',mode,task)] : [text('—')] : [])];
+        return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
+          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.deletedAt?'Deleted':task.status==='done'?'✅ Done':'🔲 To do'),
+          ...(showManagement ? [task.deletedAt?cellAction('ui_restore','Restore',mode,task):task.status==='done'?cellAction(state.period==='past'?'ui_unarchive':'ui_archive',state.period==='past'?'Move to Current':'Archive',mode,task):text('—')] : [])];
       })]});
       const navigation=[];
       if (expanded) {
@@ -68,7 +71,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
   if(deleted?.channelId===channelId && deleted.creatorId===userId && deleted.deletedAt && deleted.version===state.undoVersion) {
     blocks.push({type:'section',text:{type:'plain_text',text:'Task deleted.'},accessory:button('ui_restore','Undo delete',{id:deleted.id,version:deleted.version})});
   } else { state.undoId=null; state.undoVersion=null; if(notice)blocks.push(section(notice)); }
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or a status to toggle it. Only assignees can change status.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or a status to toggle it. Only assignees can change status. Completed tasks stay Current for the assigner for seven days, or until archived.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }

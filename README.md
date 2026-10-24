@@ -20,18 +20,20 @@ That's all teammates need to get started. There is no separate Relay account or 
 
 ## See your tasks in Slack
 
-Open **Relay → Home**. Your two task tables are already there:
+Open **Relay → Home**. **Current** shows two tables:
 
-- **Assigned to you** — the five newest tasks assigned to you, including self-assigned tasks.
-- **Assigned by you** — the five newest tasks you created, including tasks assigned to yourself.
+- **Assigned to you** — unfinished work assigned to you. Marking it Done moves it to your Past list immediately.
+- **Assigned by you** — work you created. Completed tasks stay here for seven days after completion so you can see the result; click **Archive** to move them to your Past list sooner.
 
-Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can change a task’s status, including reopening it. Status in Assigned by you is read-only. Completing work mentions the assigner in the task’s channel thread.
+Switch to **Past** to find completed, archived, and deleted work. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.
 
-Click a **task name** to open its details and requirements (plus attached images when uploads are enabled). Details opened from **Assigned to you** are read-only, including self-assigned tasks. The assigner can open the task under **Assigned by you** and choose **Edit** to update it. The assigner can also click the **Due** cell in **Assigned by you** to set or change the date and time, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
+Only assignees can toggle **🔲 To do / ✅ Done**, including reopening work from Past. Reopening brings the task back to both Current lists and clears its archive state. Completing work mentions the assigner in the task’s channel thread. Archiving only affects the assigner’s list and sends no notification. **Move to Current** gives a completed task another seven days in the assigner’s Current list without changing its status.
 
-Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear in both tables. **Assigned to you** has no Delete column; delete from **Assigned by you**. The tables are private to you and cover the channel enabled for Relay.
+Click a **task name** for requirements and notes (plus attached images when uploads are enabled). Details opened from **Assigned to you** are read-only, including self-assigned tasks. The assigner can open it under **Assigned by you** and choose **Edit**. The **Due** cell there also opens the deadline editor.
 
-**＋ New task** and **Refresh** sit at the bottom. Refresh preserves expanded lists and their pages. No task selector or view switching is needed.
+For mistakes or canceled work, **Delete task** is inside the assigner’s task-details window and asks for confirmation. Deleted tasks appear in both Past lists marked **Deleted**, with **Restore** available only to the assigner. They retain their details and history; nothing is permanently erased.
+
+**＋ New task** and **Refresh** stay at the bottom. Self-assigned tasks follow each table’s role: after completion they are Past under Assigned to you and remain Current under Assigned by you for up to seven days.
 
 ## Your first task
 

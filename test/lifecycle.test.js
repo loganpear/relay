@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {TaskStore} from '../src/tasks.js';
+import {taskHome,homeRequest,homeState} from '../src/home.js';
+import {handleAppUi} from '../src/ui.js';
+const base={teamId:'TTEST',channelId:'CTEST',creatorId:'UCREATOR',assigneeId:'UASSIGNEE',title:'Lifecycle test'};
+const week=7*24*60*60*1000;
+const context={teamId:base.teamId,channelId:base.channelId,actorId:base.creatorId};
+const config={teamId:base.teamId,allowedChannelId:base.channelId};
+const page=(store,userId,direction,period,now=new Date())=>store.personalPage({...base,userId,direction,period,now});
+const action=(task,name,user=base.creatorId,state={})=>({type:'block_actions',team:{id:base.teamId},user:{id:user},trigger_id:'trigger',view:{type:'home',private_metadata:JSON.stringify(homeState(state))},actions:[{action_id:name,value:JSON.stringify({id:task.id,version:task.version})}]});
+test('Completion leaves assignee Current immediately and assigner Current exactly seven days later',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ task=store.transition({...context,id:task.id,actorId:base.assigneeId,version:task.version,action:'complete'});
+ const completed=Date.parse(task.completedAt);
+ assert.equal(page(store,base.assigneeId,'mine','current').total,0);assert.equal(page(store,base.assigneeId,'mine','past').total,1);
+ assert.equal(page(store,base.creatorId,'assigned','current',new Date(completed+week-1)).total,1);
+ assert.equal(page(store,base.creatorId,'assigned','current',new Date(completed+week)).total,0);
+ assert.equal(page(store,base.creatorId,'assigned','past',new Date(completed+week)).total,1);
+ // Editing notes must not restart the completion window.
+ task=store.manage({...context,id:task.id,version:task.version,action:'edit',changes:{...base,details:'More notes'}});
+ assert.equal(Date.parse(task.completedAt),completed);assert.equal(page(store,base.creatorId,'assigned','past',new Date(completed+week)).total,1);store.close();
+});
+test('Archive is creator-only, changes only their list, and reopening resets lifecycle state',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ assert.throws(()=>store.manage({...context,id:task.id,version:task.version,action:'archive'}));
+ task=store.transition({...context,id:task.id,actorId:base.assigneeId,action:'complete'});
+ assert.throws(()=>store.manage({...context,actorId:base.assigneeId,id:task.id,version:task.version,action:'archive'}));
+ const original=task.completedAt;
+ task=store.manage({...context,id:task.id,version:task.version,action:'archive',receiptKey:'archive'});
+ store.manage({...context,id:task.id,version:task.version-1,action:'archive',receiptKey:'archive'});
+ assert.equal(page(store,base.creatorId,'assigned','current').total,0);assert.equal(page(store,base.creatorId,'assigned','past').total,1);assert.equal(page(store,base.assigneeId,'mine','past').total,1);
+ task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});assert.equal(task.completedAt,original);assert.equal(page(store,base.creatorId,'assigned','current').total,1);
+ task=store.manage({...context,id:task.id,version:task.version,action:'archive'});
+ task=store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'reopen'});
+ assert.equal(task.completedAt,null);assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
+ assert.equal(page(store,base.creatorId,'assigned','current').total,1);assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','past').total,0);store.close();
+});
+test('Deleted work appears in both Past lists, only the creator can restore, and details remain readable',()=>{
+ const store=new TaskStore();let task=store.create({...base,details:'Keep these requirements'});
+ task=store.manage({...context,id:task.id,version:task.version,action:'delete'});
+ for(const [user,direction] of [[base.creatorId,'assigned'],[base.assigneeId,'mine']]){assert.equal(page(store,user,direction,'current').total,0);assert.equal(page(store,user,direction,'past').total,1);}
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Deleted');assert.equal(mine.rows[1].length,4);
+ const view=handleAppUi(store,config,action(task,'ui_details:mine:'+task.id,base.assigneeId,{period:'past'})).openModal.view;assert.match(JSON.stringify(view),/Keep these requirements/);assert.equal(view.blocks.some(b=>b.type==='actions'),false);
+ assert.match(handleAppUi(store,config,action(task,'ui_restore',base.assigneeId,{period:'past'})).home.notice,/assigner/);
+ handleAppUi(store,config,action(task,'ui_restore',base.creatorId,{period:'past'}));assert.equal(store.get(task.id,base.teamId).deletedAt,null);assert.equal(page(store,base.assigneeId,'mine','current').total,1);store.close();
+});
+test('View switching resets pages, Past orders recent activity, and pagination bounds apply',()=>{
+ const store=new TaskStore();for(let i=0;i<26;i++){const t=store.create({...base,title:'Task '+i});store.transition({...context,id:t.id,actorId:base.assigneeId,action:'complete'});}
+ const request=homeRequest(base.teamId,base.channelId,action({id:1,version:0},'home_past',base.assigneeId,{mineExpanded:true,minePage:2}));assert.equal(request.period,'past');assert.equal(request.mineExpanded,false);assert.equal(request.minePage,0);
+ const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'Task 25');
+ assert.equal(taskHome(store,{...base,userId:base.assigneeId,period:'past',mineExpanded:true}).blocks.find(b=>b.type==='data_table').rows.length,21);
+ assert.equal(page(store,'USTRANGER','mine','past').total,0);assert.equal(store.personalPage({...base,teamId:'TOTHER',userId:base.assigneeId,direction:'mine',period:'past'}).total,0);store.close();
+});
+
+test('Lifecycle migration preserves old completion dates and archived state survives restart',async()=>{
+ const {mkdtempSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const dir=mkdtempSync(join(tmpdir(),'relay-lifecycle-')),path=join(dir,'tasks.sqlite');let store=new TaskStore(path);
+ try{
+  let task=store.create(base);task=store.transition({...context,id:task.id,actorId:base.assigneeId,action:'complete'});
+  const completed=task.completedAt,notifications=store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n;
+  store.db.exec("ALTER TABLE tasks DROP COLUMN completedAt; ALTER TABLE tasks DROP COLUMN archivedAt; ALTER TABLE tasks DROP COLUMN creatorCurrentUntil; DELETE FROM schema_migrations WHERE name='task-lifecycle'");store.close();store=new TaskStore(path);
+  task=store.get(task.id,base.teamId);assert.equal(task.completedAt,completed);assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,notifications);
+  task=store.manage({...context,id:task.id,version:task.version,action:'archive'});store.close();store=new TaskStore(path);
+  assert.equal(page(store,base.creatorId,'assigned','past').total,1);assert.equal(store.get(task.id,base.teamId).archivedAt,task.archivedAt);
+ }finally{store.close();rmSync(dir,{recursive:true});}
+});
