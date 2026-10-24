@@ -17,7 +17,7 @@ test('Home shows both recent lists immediately, includes both statuses, and keep
  const view=taskHome(store,context),[mine,assigned]=tables(view);
  assert.equal(mine.caption,'Assigned to you · 3');assert.equal(assigned.caption,'Assigned by you · 1');
  assert.deepEqual(mine.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Self assigned','Newest finished work','Older open work']);
- assert.equal(mine.rows[2][3].element.text.text,'✅ Done');assert.equal(mine.rows[3][3].element.text.text,'☐ To do');
+ assert.equal(mine.rows[2][3].element.text.text,'✅ Done');assert.equal(mine.rows[3][3].element.text.text,'⬜ To do');
  assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Delegated']);
  assert.deepEqual(view.blocks.at(-1).elements.map(e=>e.action_id),['ui_new','home_refresh']);
  assert.doesNotMatch(JSON.stringify(view),/Wrong workspace|Wrong channel|home_select|home_filter|Trash/);store.close();
