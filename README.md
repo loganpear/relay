@@ -20,16 +20,16 @@ That's all teammates need to get started. There is no separate Relay account or 
 
 ## See your tasks in Slack
 
-Open **Relay → Home**. Your two task tables are already there:
+Open **Relay → Home**. Your two task lists are already there:
 
 - **Assigned to you** — the five newest tasks assigned to you, including self-assigned tasks.
 - **Assigned by you** — the five newest tasks you assigned to other people.
 
-Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can mark work done; either the assignee or assigner can reopen it. Completing work mentions the assigner in the task’s channel thread.
+Each row shows task directions, the teammate, due date, and an inline status dropdown. Choose **To do** or **Done** to save immediately, without opening a window. Only the assignee can mark work done; either the assignee or assigner can reopen it. Completing work mentions the assigner in the task’s channel thread.
 
-The assigner can click the **task directions** to edit the directions, assignee, or due date, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
+The assigner can click **Edit** to change the directions, assignee, or due date, or **Delete** on the task. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
-Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear only once. The tables are private to you and cover the channel enabled for Relay.
+Each list starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear only once. The lists are private to you and cover the channel enabled for Relay.
 
 **＋ New task** and **Refresh** sit at the bottom. Refresh preserves expanded lists and their pages. No task selector or view switching is needed.
 

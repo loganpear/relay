@@ -77,11 +77,11 @@ test('Mark done and Reopen enforce roles and support completing a task again',()
 test('Inline row controls respect ownership and carry independent task identities',()=>{
  const store=new TaskStore();let task=store.create(base);
  const view=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',...select(task)});
- const allActions=view.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(allActions.includes('ui_edit'));assert.ok(allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
+ const allActions=view.blocks.flatMap(b=>[b.accessory?.action_id?.split(':')[0],...(b.elements??[]).map(e=>e.action_id?.split(':')[0])]);
+ assert.ok(allActions.includes('ui_edit'));assert.ok(allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_status'));
  const assigneeView=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',filter:'all',selectedId:task.id});
- const theirActions=assigneeView.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(theirActions.includes('ui_complete'));assert.ok(!theirActions.includes('ui_edit'));
+ const theirActions=assigneeView.blocks.flatMap(b=>[b.accessory?.action_id?.split(':')[0],...(b.elements??[]).map(e=>e.action_id?.split(':')[0])]);
+ assert.ok(theirActions.includes('ui_status'));assert.ok(!theirActions.includes('ui_edit'));
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'todo'}).total,0);
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'done'}).total,1);store.close();
@@ -99,4 +99,16 @@ test('Row controls reject stale and malformed values without changing other task
  handleAppUi(store,config,click,'row-click');assert.equal(store.get(one.id,'TTEST').status,'done');assert.equal(store.get(two.id,'TTEST').status,'todo');
  assert.match(handleAppUi(store,config,click,'stale').home.notice,/changed/);
  click.actions[0].value='not json';assert.match(handleAppUi(store,config,click).home.notice,/Refresh/);store.close();
+});
+
+test('Inline dropdown changes immediately, deduplicates retries, and rejects stale or unauthorized changes',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ const choose=(status,actor='UOTHER',version=task.version)=>{const p=action('ui_status:mine:'+task.id,{},actor);p.actions[0].type='static_select';p.actions[0].selected_option={value:JSON.stringify({id:task.id,version,status})};delete p.actions[0].value;return p;};
+ const done=choose('done');const result=handleAppUi(store,config,done,'dropdown-done');assert.equal(result.openModal,undefined);assert.equal(result.ackPayload.response_action,undefined);
+ handleAppUi(store,config,done,'dropdown-done');task=store.get(task.id,'TTEST');assert.equal(task.status,'done');assert.equal(task.version,1);assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,1);
+ assert.match(handleAppUi(store,config,done,'stale').home.notice,/changed/);
+ handleAppUi(store,config,choose('todo','UME'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
+ assert.match(handleAppUi(store,config,choose('done','UME'),'forged').home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'todo');
+ handleAppUi(store,config,choose('todo'),'noop');assert.equal(store.get(task.id,'TTEST').version,2);
+ assert.match(handleAppUi(store,config,choose('invalid'),'invalid').home.notice,/Choose/);store.close();
 });

@@ -59,11 +59,18 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
   try{
     if(name==='ui_new')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal('create',state)}};
     let row;
-    try { row=JSON.parse(action.value); } catch { throw new TaskError('Refresh Relay and try this task again.'); }
+    try { row=JSON.parse(name==='ui_status'?action.selected_option?.value:action.value); } catch { throw new TaskError('Refresh Relay and try this task again.'); }
     if(!Number.isSafeInteger(row.id)||!Number.isSafeInteger(row.version))throw new TaskError('Invalid task control. Refresh Relay.');
     const task=store.get(row.id,teamId);
     if(!task||task.channelId!==allowedChannelId||![task.creatorId,task.assigneeId].includes(actorId))throw new TaskError('Choose one of your tasks first.');
+    if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
+    if(name==='ui_status'){
+      if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
+      if(task.status===row.status)return {ackPayload:{},home};
+      store.transition({...context,id:task.id,version:task.version,action:row.status==='done'?'complete':'reopen',receiptKey});
+      return {ackPayload:{},home:{...home,notice:row.status==='done'?'Task marked done. Its assigner will receive a completion mention.':'Task reopened.'}};
+    }
     if(['ui_edit','ui_delete'].includes(name)){
       if(task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
       return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':'delete',state,task)}};
@@ -77,7 +84,8 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
 }
 export async function runAppUiEffects(client,store,config,result){
   if(result?.openModal){
-    try{await client.call('views.open',result.openModal);}catch{
+    try{await client.call('views.open',result.openModal);}catch(error){
+      console.error('Relay could not open a task form:',error.message);
       // No mutation happened. The user can safely click New task or Edit again.
       return;
     }
