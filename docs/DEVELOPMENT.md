@@ -89,9 +89,9 @@ On first startup, the two-status migration preserves Done tasks, maps all other 
 
 ## Personal Home tab
 
-Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. Home immediately displays two compact task lists: the newest five assigned to the viewer and the newest five they assigned to others. Self-assigned work appears only in the first list. Each list expands independently to 20 rows and pages through older work. Even both expanded lists with all management controls stay below Slack’s 100-block Home limit. Refresh preserves expansion and page state; reopening Home returns to five rows per list. Opening Messages also initializes Home for first-time users.
+Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. Home immediately displays two data_table blocks: the newest five tasks assigned to the viewer and the newest five they assigned to others. Self-assigned work appears only in the first table. Each list expands independently to 20 rows and pages through older work, so payload sizes stay bounded. Refresh preserves expansion and page state; reopening Home returns to five rows per list. Opening Messages also initializes Home for first-time users.
 
-Each task is a section with a native static_select in its row of controls, plus Edit/Delete controls for its creator. Controls sit below the directions so narrow Slack windows do not clip the task text. Status choices carry task ID, version, and explicit target status. Choices save immediately without a modal, recheck authorization and version, and deduplicate retries. Choosing the current status sends no notification or version update. Task directions remain plain text. Queries and mutations use the authenticated actor plus the configured workspace and channel. Publishing Home sends no channel messages.
+Status, task directions (Edit), and Delete use action_cell buttons. Each button carries its own task ID and version, with a unique action_id per task and list. Queries and mutations use the authenticated actor plus the configured workspace and channel. Legacy clients that cannot render action cells show a text fallback; channel-card controls and slash commands remain available. Publishing Home sends no channel messages.
 
 ## Task management from Home
 

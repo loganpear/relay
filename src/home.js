@@ -1,5 +1,7 @@
 import { labels } from './tasks.js';
 
+const text = value => ({ type: 'raw_text', text: String(value) });
+const person = userId => ({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'user', user_id: userId }] }] });
 export const section = value => ({ type: 'section', text: { type: 'plain_text', text: value } });
 export const button = (actionId, label, value, extra = {}) => ({ type: 'button', action_id: actionId, text: { type: 'plain_text', text: label }, value: JSON.stringify(value), ...extra });
 export function homeState(value = {}) {
@@ -31,6 +33,7 @@ export function homeRequest(teamId, allowedChannelId, payload, event = false) {
   } else if (action.action_id !== 'home_refresh') return null;
   return { userId: payload.user.id, ...homeState(state) };
 }
+const cellAction = (action, label, mode, task) => ({ type:'action_cell',element:button(`${action}:${mode}:${task.id}`,label,{id:task.id,version:task.version}),fallback:text(label) });
 export function taskHome(store, { teamId, channelId, userId, notice, ...input }) {
   const state = homeState(input);
   const blocks = [];
@@ -41,20 +44,15 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
     if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(mode==='mine'?'No tasks assigned to you yet.':'No tasks assigned to others yet.'));
     else {
-      blocks.push({type:'header',text:{type:'plain_text',text:`${title} · ${data.total}`}});
-      for (const task of data.tasks) {
-        const canChange = task.assigneeId === userId || task.status === 'done';
-        const due = task.dueDate ? (task.dueDate<new Date().toISOString().slice(0,10)&&task.status==='todo'?'Overdue · ':'')+task.dueDate : 'No deadline';
-        const options=['todo','done'].map(status=>({text:{type:'plain_text',text:labels[status]},value:JSON.stringify({id:task.id,version:task.version,status})}));
-        blocks.push({type:'section',block_id:`task:${mode}:${task.id}:${task.version}`,text:{type:'plain_text',text:task.title},fields:[
-          {type:'mrkdwn',text:`${mode==='mine'?'From':'To'} <@${mode==='mine'?task.creatorId:task.assigneeId}>`},
-          {type:'plain_text',text:`Due: ${due}${canChange?'':' · '+labels[task.status]}`}
-        ]});
-        const controls=[];
-        if(canChange)controls.push({type:'static_select',action_id:`ui_status:${mode}:${task.id}`,placeholder:{type:'plain_text',text:'Status'},initial_option:options.find(o=>JSON.parse(o.value).status===task.status),options});
-        if(task.creatorId===userId)controls.push(button(`ui_edit:${mode}:${task.id}`,'Edit',{id:task.id,version:task.version}),button(`ui_delete:${mode}:${task.id}`,'Delete',{id:task.id,version:task.version}));
-        if(controls.length)blocks.push({type:'actions',block_id:`controls:task:${mode}:${task.id}:${task.version}`,elements:controls});
-      }
+      const showManagement = mode === 'assigned' || data.tasks.some(t=>t.creatorId===userId);
+      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Delete']:[])];
+      blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
+        const canToggle = task.assigneeId === userId || task.status === 'done';
+        const due = task.dueDate ? (task.dueDate<new Date().toISOString().slice(0,10)&&task.status==='todo'?'Overdue · ':'')+task.dueDate : '—';
+        return [task.creatorId===userId ? cellAction('ui_edit',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task) : text(task.title),person(mode==='mine'?task.creatorId:task.assigneeId),text(due),
+          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'☐ To do':'☑ Done',mode,task) : text(labels[task.status]),
+          ...(showManagement ? task.creatorId===userId ? [cellAction('ui_delete','Delete',mode,task)] : [text('—')] : [])];
+      })]});
       const navigation=[];
       if (expanded) {
         if(data.page>0)navigation.push(button(`home_prev_${mode}`,'Previous',{}));
@@ -70,7 +68,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
   if(deleted?.channelId===channelId && deleted.creatorId===userId && deleted.deletedAt && deleted.version===state.undoVersion) {
     blocks.push({type:'section',text:{type:'plain_text',text:'Task deleted.'},accessory:button('ui_restore','Undo delete',{id:deleted.id,version:deleted.version})});
   } else { state.undoId=null; state.undoVersion=null; if(notice)blocks.push(section(notice)); }
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · Choose To do / Done directly from a task’s dropdown. Only assignees can mark done.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · Click task directions to edit, or a status to toggle it. Only assignees can mark done.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }
