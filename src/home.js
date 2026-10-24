@@ -1,5 +1,10 @@
-import { formatDue, dueTimezoneLabel } from './tasks.js';
+import { formatDue, dueTimezone, dueTimezoneLabel } from './tasks.js';
 
+const createdClock = new Intl.DateTimeFormat('en-US',{timeZone:dueTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'numeric',minute:'2-digit',hour12:true});
+const createdCell = value => {
+  const timestamp=Date.parse(value);
+  return Number.isFinite(timestamp)?{type:'raw_number',value:timestamp,text:createdClock.format(new Date(timestamp)).replace(',','')}:text('—');
+};
 const text = value => ({ type: 'raw_text', text: String(value) });
 const person = userId => ({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'user', user_id: userId }] }] });
 export const section = value => ({ type: 'section', text: { type: 'plain_text', text: value } });
@@ -47,12 +52,13 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(state.period==='past'?'No past tasks yet.':mode==='mine'?"You’re all caught up.":'No current tasks assigned by you.'));
     else {
       const showManagement = mode === 'assigned';
-      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Action']:[])];
+      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(state.period==='past'?['Created at']:[]),...(showManagement?['Action']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});
         return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
           canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.deletedAt?'Archived':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'),
+          ...(state.period==='past'?[createdCell(task.createdAt)]:[]),
           ...(showManagement ? [cellAction(state.period==='past'?'ui_unarchive':'ui_archive',state.period==='past'?'Move to Current':'Archive',mode,task)] : [])];
       })]});
       const navigation=[];

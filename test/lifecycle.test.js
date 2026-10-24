@@ -39,7 +39,7 @@ test('Archived work stays readable in Past and only the creator can reactivate i
  const store=new TaskStore();let task=store.create({...base,details:'Keep these requirements'});
  task=store.manage({...context,id:task.id,version:task.version,action:'archive'});
  for(const [user,direction] of [[base.creatorId,'assigned'],[base.assigneeId,'mine']]){assert.equal(page(store,user,direction,'current').total,0);assert.equal(page(store,user,direction,'past').total,1);}
- const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1].length,4);
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1].length,5);
  const view=handleAppUi(store,config,action(task,'ui_details:mine:'+task.id,base.assigneeId,{period:'past'})).openModal.view;assert.match(JSON.stringify(view),/Keep these requirements/);assert.equal(view.blocks.some(b=>b.type==='actions'),false);
  assert.match(handleAppUi(store,config,action(task,'ui_unarchive',base.assigneeId,{period:'past'})).home.notice,/assigner/);
  handleAppUi(store,config,action(task,'ui_unarchive',base.creatorId,{period:'past'}));assert.equal(store.get(task.id,base.teamId).deletedAt,null);assert.equal(page(store,base.assigneeId,'mine','current').total,1);store.close();
@@ -47,7 +47,7 @@ test('Archived work stays readable in Past and only the creator can reactivate i
 test('View switching resets pages, Past orders recent activity, and pagination bounds apply',()=>{
  const store=new TaskStore();for(let i=0;i<26;i++){const t=store.create({...base,title:'Task '+i});store.transition({...context,id:t.id,actorId:base.assigneeId,action:'complete'});}
  const request=homeRequest(base.teamId,base.channelId,action({id:1,version:0},'home_past',base.assigneeId,{mineExpanded:true,minePage:2}));assert.equal(request.period,'past');assert.equal(request.mineExpanded,false);assert.equal(request.minePage,0);
- const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'Task 25');
+ const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows[0][4].text,'Created at');assert.equal(table.rows[1][4].type,'raw_number');assert.equal(table.rows[1][4].value,Date.parse(store.get(26,base.teamId).createdAt));assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'Task 25');
  assert.equal(taskHome(store,{...base,userId:base.assigneeId,period:'past',mineExpanded:true}).blocks.find(b=>b.type==='data_table').rows.length,21);
  assert.equal(page(store,'USTRANGER','mine','past').total,0);assert.equal(store.personalPage({...base,teamId:'TOTHER',userId:base.assigneeId,direction:'mine',period:'past'}).total,0);store.close();
 });
@@ -76,7 +76,7 @@ test('Archiving To do stops work for both people without completion and can be r
  assert.throws(()=>store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'}),/archived/);
  const card=taskMessage(task);assert.equal(card.blocks.some(b=>b.type==='actions'),false);assert.match(card.text,/Archived/);
  const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1][3].element,undefined);
- const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][4].element.text.text,'Move to Current');
+ const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][5].element.text.text,'Move to Current');
  task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});
  assert.equal(task.status,'todo');assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
  assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','current').total,1);

@@ -54,7 +54,7 @@ test('Old delete controls archive safely and the UI only offers archive terminol
  const result=handleAppUi(store,config,submit(JSON.parse(opened.openModal.view.private_metadata)));
  task=store.get(task.id,'TTEST');assert.equal(task.deletedAt,null);assert.ok(task.archivedAt);assert.equal(store.history(task.id).at(-1).action,'archive');
  const home=taskHome(store,{teamId:'TTEST',channelId:'CTEST',...result.home,period:'past'});
- assert.equal(home.blocks.find(b=>b.type==='data_table').rows[1][4].element.text.text,'Move to Current');assert.doesNotMatch(JSON.stringify(home),/Delete task|Deleted|Undo delete|Restore/);
+ assert.equal(home.blocks.find(b=>b.type==='data_table').rows[1][5].element.text.text,'Move to Current');assert.doesNotMatch(JSON.stringify(home),/Delete task|Deleted|Undo delete|Restore/);
  assert.equal(taskMessage(task).blocks.some(b=>b.type==='actions'),false);
  handleAppUi(store,config,action('ui_restore',select(task)),'legacy-restore');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(store.history(task.id).at(-1).action,'unarchive');store.close();
 });
