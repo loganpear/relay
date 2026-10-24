@@ -140,3 +140,19 @@ test('Task forms set and clear due times and show missing-date errors inline',()
  handleAppUi(store,config,submit(JSON.parse(edit.openModal.view.private_metadata),{dueDate:'2026-11-06'},'UME','VCLEARTIME'));
  assert.equal(store.get(task.id,'TTEST').dueTime,null);store.close();
 });
+
+test('Due cells let only the assigner change or clear deadlines without changing task details',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ const row=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'}).blocks.find(b=>b.type==='data_table').rows[1];
+ assert.equal(row[2].element.text.text,'Set due date');assert.equal(row[2].element.action_id,'ui_due:assigned:'+task.id);
+ assert.equal(handleAppUi(store,config,action('ui_due',select(task),'UOTHER')).openModal,undefined);
+ const opened=handleAppUi(store,config,action('ui_due',select(task))).openModal.view;
+ assert.deepEqual(opened.blocks.filter(b=>b.type==='input').map(b=>b.block_id),['due_date','due_time']);
+ const meta=JSON.parse(opened.private_metadata);
+ const save=submit(meta,{title:'Must not overwrite',assigneeId:'UFORGED',dueDate:'2026-11-08',dueTime:'16:15'},'UME','VDUE');
+ assert.deepEqual(handleAppUi(store,config,save).ackPayload,{});
+ task=store.get(task.id,'TTEST');assert.equal(task.title,base.title);assert.equal(task.assigneeId,base.assigneeId);assert.equal(task.dueDate,'2026-11-08');assert.equal(task.dueTime,'16:15');
+ const stale=handleAppUi(store,config,submit(meta,{dueDate:'2026-11-09'},'UME','VDUESTALE'));assert.match(stale.ackPayload.errors.due_date,/changed/);
+ const current=JSON.parse(handleAppUi(store,config,action('ui_due',select(task))).openModal.view.private_metadata);
+ handleAppUi(store,config,submit(current,{},'UME','VDUECLEAR'));task=store.get(task.id,'TTEST');assert.equal(task.dueDate,null);assert.equal(task.dueTime,null);store.close();
+});

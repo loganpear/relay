@@ -27,7 +27,7 @@ Open **Relay → Home**. Your two task tables are already there:
 
 Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can change a task’s status, including reopening it. Status in Assigned by you is read-only. Completing work mentions the assigner in the task’s channel thread.
 
-The assigner can click the **task directions** to edit the directions, assignee, or due date, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
+The assigner can click the **task directions** to edit the directions, assignee, or due date, click the **Due** cell in **Assigned by you** to set or change the date and time, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
 Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear in both tables. **Assigned to you** has no Delete column; delete from **Assigned by you**. The tables are private to you and cover the channel enabled for Relay.
 
