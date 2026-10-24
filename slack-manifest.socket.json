@@ -13,7 +13,7 @@
       {
         "command": "/task",
         "description": "Assign a task",
-        "usage_hint": "@person Task title --due MM/DD HH:MM AM/PM",
+        "usage_hint": "@person Task title --due MM/DD HH:MM AM/PM --details \"Notes\"",
         "should_escape": true
       },
       {

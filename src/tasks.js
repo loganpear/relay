@@ -34,6 +34,25 @@ export function parseTask(text, {now=new Date()}={}) {
   const match = text.trim().match(/^<@([A-Z0-9]+)(?:\|[^>]+)?>\s+(.+)$/s);
   if (!match) throw new TaskError('Use /task @someone Task title --due MM/DD HH:MM AM/PM. Select the person from Slack’s suggestions.');
   let title = match[2].trim();
+  let details;
+  const detailsFlag=/(?:^|\s)--details(?=\s|$)/.exec(title);
+  if(detailsFlag) {
+    const start=detailsFlag.index+detailsFlag[0].length;
+    let cursor=start;while(/\s/.test(title[cursor]??'')&&cursor<title.length)cursor++;
+    const quote=title[cursor],closing=quote==='“'?'”':'"';
+    if(!['"','“'].includes(quote))throw new TaskError('Put details in quotes: --details "Requirements or notes".');
+    let value='',closed=false;cursor++;
+    for(;cursor<title.length;cursor++) {
+      const character=title[cursor];
+      if(character===closing){closed=true;cursor++;break;}
+      if(character==='\\'&&['"','\\'].includes(title[cursor+1]))value+=title[++cursor];
+      else value+=character;
+    }
+    if(!closed||(cursor<title.length&&!/\s/.test(title[cursor])))throw new TaskError('Close the quotes around --details "Requirements or notes".');
+    details=validateDetails(value).details;
+    title=(title.slice(0,detailsFlag.index)+' '+title.slice(cursor)).trim();
+    if(/(?:^|\s)--details(?=\s|$)/.test(title))throw new TaskError('Use --details only once per task.');
+  }
   // Accept the former flag on old saved commands; completion is now always direct.
   title = title.replace(/(?:^|\s)--no-review(?=\s|$)/g, ' ').trim();
   let dueDate = null, dueTime = null;
@@ -64,10 +83,10 @@ export function parseTask(text, {now=new Date()}={}) {
     const at=title.match(/(?:^|\s)--at\s+(\S+)/);
     if(at){dueTime=at[1];title=title.replace(at[0],' ').trim();}
   }
-  if (title.includes('--')) throw new TaskError('Supported option: --due MM/DD HH:MM AM/PM.');
+  if (title.includes('--')) throw new TaskError('Supported options: --due MM/DD HH:MM AM/PM and --details "Requirements or notes".');
   validateTask({title,assigneeId:match[1],dueDate,dueTime});
   if (!title || title.length > 240) throw new TaskError('Give the task a title between 1 and 240 characters.');
-  return { assigneeId: match[1], title, dueDate, ...(dueTime?{dueTime}:{}) };
+  return { assigneeId: match[1], title, dueDate, ...(dueTime?{dueTime}:{}), ...(details!==undefined?{details}:{}) };
 }
 
 export function taskImages(task={}) {

@@ -7,7 +7,7 @@ import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
 import { homeRequest, publishTaskHome } from './home.js';
 import { handleAppUi, runAppUiEffects } from './ui.js';
 
-const help = 'Create: /task @person Task title --due MM/DD HH:MM AM/PM\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
+const help = 'Create: /task @person Task title --due MM/DD HH:MM AM/PM --details "Requirements or notes"\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
 
 export function handleCommand(store, form, receiptKey) {

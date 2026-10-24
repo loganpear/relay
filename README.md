@@ -74,6 +74,14 @@ Deadlines use Eastern time. Relay picks the soonest future year for that date an
 
 Use a two-digit month and day, followed by a 12-hour time and AM or PM.
 
+**Add short requirements or notes:**
+
+```text
+/task @alex Build signup page --due 11/06 05:30 PM --details "Include email validation and a confirmation screen."
+```
+
+Both flags are optional and can appear in either order. Put details in double quotes (up to 3,000 characters). Longer notes can also be edited from the task’s details window.
+
 ## Access and privacy
 
 Relay requests permission to receive its commands, post its task cards, and read files available to the app for task image attachments. It does not request permission to read channel history or your workspace's user directory.

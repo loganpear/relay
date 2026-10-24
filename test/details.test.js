@@ -22,3 +22,19 @@ test('Details enforce text and attachment limits',()=>{
  assert.throws(()=>validateDetails('',['https://example.com/image.png']),/images/);
  assert.deepEqual(validateDetails('  Requirements  ',['FIMAGE1','FIMAGE1']),{details:'Requirements',images:['FIMAGE1']});
 });
+
+test('Slash details parse quoted notes independently of deadline flags and persist through command handling',async()=>{
+ const {parseTask}=await import('../src/tasks.js');const {handleCommand}=await import('../src/server.js');
+ const now=new Date('2026-10-24T16:00:00Z');
+ for(const options of ['--due 11/06 05:30 PM --details "Email validation"','--details "Email validation" --due 11/06 05:30 PM']) {
+ const task=parseTask('<@UOTHER> Build signup '+options,{now});assert.equal(task.title,'Build signup');assert.equal(task.details,'Email validation');assert.equal(task.dueDate,'2026-11-06');assert.equal(task.dueTime,'17:30');
+ }
+ const literal=parseTask('<@UOTHER> Build --details "Document --due and --no-review flags"');assert.equal(literal.details,'Document --due and --no-review flags');assert.equal(literal.title,'Build');assert.equal(literal.dueDate,null);
+ assert.equal(parseTask('<@UOTHER> Build --details “Mobile notes”').details,'Mobile notes');
+ assert.equal(parseTask(String.raw`<@UOTHER> Build --details "Show \"Done\" and C:\\notes"`).details,'Show "Done" and C:\\notes');
+ assert.equal(parseTask('<@UOTHER> Build --details ""').details,'');
+ for(const options of ['--details unquoted','--details "unclosed','--details "notes"bad','--details "one" --details "two"','--details "'+ 'x'.repeat(3001)+'"'])assert.throws(()=>parseTask('<@UOTHER> Build '+options),/details|quotes|3,000/);
+ const store=new TaskStore();const form={team_id:'TTEST',channel_id:'CTEST',user_id:'UME',command:'/task',text:'<@UOTHER> Build --details "Requirements\nTwo lines"'};
+ handleCommand(store,form,'details-command');handleCommand(store,form,'details-command');const tasks=store.list({teamId:'TTEST',channelId:'CTEST'});assert.equal(tasks.length,1);assert.equal(tasks[0].details,'Requirements\nTwo lines');
+ assert.throws(()=>handleCommand(store,{...form,text:'<@UOTHER> Build --details broken'},'invalid'));assert.equal(store.list({teamId:'TTEST',channelId:'CTEST'}).length,1);store.close();
+});
