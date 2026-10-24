@@ -40,7 +40,7 @@ test('Independent expansion pages all older records and collapses to the newest 
 });
 test('Empty sections stay visible and queries clamp invalid page sizes',()=>{
  const store=new TaskStore();const view=taskHome(store,context);assert.equal(tables(view).length,2);
- for(const period of ['current','past'])for(const table of tables(taskHome(store,{...context,period}))){assert.equal(table.rows.length,2);assert.equal(table.rows[0].length,table.rows[1].length);assert.equal(table.rows[1].filter(c=>c.text==='No records').length,1);assert.ok(table.rows[1].every(c=>c.type==='raw_text'));assert.match(table.caption,/· 0$/);}
+ for(const period of ['current','past'])for(const table of tables(taskHome(store,{...context,period}))){assert.equal(table.rows.length,2);assert.equal(table.rows[0].length,table.rows[1].length);assert.equal(table.rows[1][0].text,'No records');assert.equal(table.rows[1].filter(c=>c.text==='No records').length,1);assert.ok(table.rows[1].every(c=>c.type==='raw_text'));assert.match(table.caption,/· 0$/);}
  assert.equal(store.personalPage({...context,direction:'mine',size:100}).size,20);
  assert.equal(store.personalPage({...context,direction:'mine',size:-4}).size,1);
  assert.throws(()=>store.personalPage({...context,direction:'unsafe SQL'}));store.close();

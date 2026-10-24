@@ -51,7 +51,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
     const showManagement = mode === 'assigned';
     const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Archive']:[]),...(state.period==='past'?['Created at']:[])];
-    if (!data.tasks.length) blocks.push({type:'data_table',caption:`${title} · 0`,page_size:5,rows:[headers.map(text),headers.map((_,index)=>text(index===Math.floor((headers.length-1)/2)?'No records':'\u00a0'))]});
+    if (!data.tasks.length) blocks.push({type:'data_table',caption:`${title} · 0`,page_size:5,rows:[headers.map(text),headers.map((_,index)=>text(index===0?'No records':'\u00a0'))]});
     else {
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = state.period === 'current' && mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
