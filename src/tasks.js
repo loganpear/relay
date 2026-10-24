@@ -10,7 +10,9 @@ export const dueTimezoneLabel = dueTimezone === 'America/New_York' ? 'Eastern ti
 const dueClock = new Intl.DateTimeFormat('en-CA',{timeZone:dueTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 export function formatDue(task,{now=new Date(),markOverdue=false}={}) {
   if(!task.dueDate)return '—';
-  const result=task.dueDate.slice(5).replace('-','/')+(task.dueTime?' '+task.dueTime:'');
+  const hour=task.dueTime?Number(task.dueTime.slice(0,2)):0;
+  const displayTime=task.dueTime?`${hour%12||12}:${task.dueTime.slice(3)} ${hour<12?'AM':'PM'}`:'';
+  const result=task.dueDate.slice(5).replace('-','/')+(displayTime?' '+displayTime:'');
   const parts=Object.fromEntries(dueClock.formatToParts(now).map(part=>[part.type,part.value]));
   const today=`${parts.year}-${parts.month}-${parts.day}`,time=`${parts.hour}:${parts.minute}`;
   const overdue=task.status==='todo'&&(task.dueDate<today||(task.dueDate===today&&task.dueTime&&task.dueTime<time));

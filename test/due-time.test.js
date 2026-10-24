@@ -7,21 +7,22 @@ import {TaskStore,parseTask,validateTask,formatDue} from '../src/tasks.js';
 import {taskHome} from '../src/home.js';
 import {taskMessage} from '../src/slack.js';
 const base={teamId:'TTEST',channelId:'CTEST',creatorId:'UME',assigneeId:'UOTHER',title:'Deadline check'};
-test('Due display is MM/DD HH:MM in both Home and channel cards',()=>{
+test('Due display is MM/DD h:mm AM/PM in both Home and channel cards',()=>{
  const store=new TaskStore();const task=store.create({...base,dueDate:'2026-11-06',dueTime:'09:05'});
- assert.equal(formatDue(task),'11/06 09:05');assert.equal(formatDue({...task,dueTime:'00:00'}),'11/06 00:00');
+ assert.equal(formatDue(task),'11/06 9:05 AM');assert.equal(formatDue({...task,dueTime:'00:00'}),'11/06 12:00 AM');
+ assert.equal(formatDue({...task,dueTime:'12:00'}),'11/06 12:00 PM');assert.equal(formatDue({...task,dueTime:'17:30'}),'11/06 5:30 PM');
  assert.equal(formatDue({...task,dueTime:null}),'11/06');assert.equal(formatDue({...task,dueDate:null}),'—');
  const view=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
- assert.match(view.blocks.find(b=>b.type==='data_table').rows[1][2].text,/11\/06 09:05$/);
- assert.match(JSON.stringify(taskMessage(task)),/11\/06 09:05/);store.close();
+ assert.match(view.blocks.find(b=>b.type==='data_table').rows[1][2].text,/11\/06 9:05 AM$/);
+ assert.match(JSON.stringify(taskMessage(task)),/11\/06 9:05 AM/);store.close();
 });
 test('Overdue follows Eastern local time rather than the host UTC date',()=>{
  const task={...base,status:'todo',dueDate:'2026-11-06',dueTime:'23:30'};
- assert.equal(formatDue(task,{now:new Date('2026-11-07T04:20:00Z'),markOverdue:true}),'11/06 23:30');
- assert.equal(formatDue(task,{now:new Date('2026-11-07T04:40:00Z'),markOverdue:true}),'Overdue · 11/06 23:30');
+ assert.equal(formatDue(task,{now:new Date('2026-11-07T04:20:00Z'),markOverdue:true}),'11/06 11:30 PM');
+ assert.equal(formatDue(task,{now:new Date('2026-11-07T04:40:00Z'),markOverdue:true}),'Overdue · 11/06 11:30 PM');
  assert.equal(formatDue({...task,dueTime:null},{now:new Date('2026-11-07T04:40:00Z'),markOverdue:true}),'11/06');
  assert.equal(formatDue({...task,dueTime:null},{now:new Date('2026-11-07T05:01:00Z'),markOverdue:true}),'Overdue · 11/06');
- assert.equal(formatDue({...task,status:'done'},{now:new Date('2026-11-08T05:00:00Z'),markOverdue:true}),'11/06 23:30');
+ assert.equal(formatDue({...task,status:'done'},{now:new Date('2026-11-08T05:00:00Z'),markOverdue:true}),'11/06 11:30 PM');
 });
 test('Validates times and slash-command deadlines without guessing a missing date',()=>{
  assert.equal(parseTask('<@UOTHER> Ship --due 2026-11-06 --at 17:45').dueTime,'17:45');

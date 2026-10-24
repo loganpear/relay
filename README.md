@@ -58,7 +58,7 @@ The assignee clicks **Mark done**. Relay updates the card and posts a completion
 | `/tasks team` | The channel's unfinished tasks |
 | `/tasks all` | The channel's tasks, including completed work |
 
-Deadlines display as **MM/DD HH:MM** in 24-hour Eastern time. A date without a time shows only **MM/DD**.
+Deadlines display as **MM/DD h:mm AM/PM** in Eastern time (for example, **11/06 5:30 PM**). A date without a time shows only **MM/DD**.
 
 Task lists are visible only to the person requesting them. Shared task cards stay in the channel.
 
