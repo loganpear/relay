@@ -39,15 +39,15 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
   const blocks = [];
   for (const mode of ['mine','assigned']) {
     const expanded = state[`${mode}Expanded`];
-    const data = store.personalPage({teamId,channelId,userId,direction:mode,othersOnly:mode==='assigned',size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
+    const data = store.personalPage({teamId,channelId,userId,direction:mode,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
     state[`${mode}Page`] = data.page;
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
-    if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(mode==='mine'?'No tasks assigned to you yet.':'No tasks assigned to others yet.'));
+    if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(mode==='mine'?'No tasks assigned to you yet.':'No tasks assigned by you yet.'));
     else {
-      const showManagement = mode === 'assigned' || data.tasks.some(t=>t.creatorId===userId);
+      const showManagement = mode === 'assigned';
       const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Delete']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
-        const canToggle = task.assigneeId === userId;
+        const canToggle = mode === 'mine' && task.assigneeId === userId;
         const due = formatDue(task,{markOverdue:true});
         return [task.creatorId===userId ? cellAction('ui_edit',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task) : text(task.title),person(mode==='mine'?task.creatorId:task.assigneeId),text(due),
           canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),

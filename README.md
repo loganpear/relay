@@ -23,13 +23,13 @@ That's all teammates need to get started. There is no separate Relay account or 
 Open **Relay → Home**. Your two task tables are already there:
 
 - **Assigned to you** — the five newest tasks assigned to you, including self-assigned tasks.
-- **Assigned by you** — the five newest tasks you assigned to other people.
+- **Assigned by you** — the five newest tasks you created, including tasks assigned to yourself.
 
 Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can change a task’s status, including reopening it. Status in Assigned by you is read-only. Completing work mentions the assigner in the task’s channel thread.
 
 The assigner can click the **task directions** to edit the directions, assignee, or due date, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
-Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear only once. The tables are private to you and cover the channel enabled for Relay.
+Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear in both tables. **Assigned to you** has no Delete column; delete from **Assigned by you**. The tables are private to you and cover the channel enabled for Relay.
 
 **＋ New task** and **Refresh** sit at the bottom. Refresh preserves expanded lists and their pages. No task selector or view switching is needed.
 

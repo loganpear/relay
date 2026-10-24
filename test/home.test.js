@@ -15,10 +15,12 @@ test('Home shows both recent lists immediately, includes both statuses, and keep
  store.create({...base,creatorId:'UME',title:'Self assigned'});
  store.create({...base,teamId:'TOTHER',title:'Wrong workspace'});store.create({...base,channelId:'COTHER',title:'Wrong channel'});
  const view=taskHome(store,context),[mine,assigned]=tables(view);
- assert.equal(mine.caption,'Assigned to you · 3');assert.equal(assigned.caption,'Assigned by you · 1');
+ assert.equal(mine.caption,'Assigned to you · 3');assert.equal(assigned.caption,'Assigned by you · 2');
  assert.deepEqual(mine.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Self assigned','Newest finished work','Older open work']);
  assert.equal(mine.rows[2][3].element.text.text,'✅ Done');assert.equal(mine.rows[3][3].element.text.text,'🔲 To do');
- assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Delegated']);
+ assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['Self assigned','Delegated']);
+ assert.equal(mine.rows[0].length,4);assert.ok(mine.rows.slice(1).every(row=>row.length===4));
+ assert.equal(assigned.rows[0][4].text,'Delete');assert.equal(assigned.rows[1][4].element.text.text,'Delete');assert.equal(assigned.rows[1][3].type,'raw_text');
  assert.deepEqual(view.blocks.at(-1).elements.map(e=>e.action_id),['ui_new','home_refresh']);
  assert.doesNotMatch(JSON.stringify(view),/Wrong workspace|Wrong channel|home_select|home_filter|Trash/);store.close();
 });
