@@ -256,3 +256,19 @@ test('Past status cells are read-only and old Past controls and forms cannot cha
  const table=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'}).blocks.find(b=>b.type==='data_table');
  assert.deepEqual(table.rows[1][3],{type:'raw_text',text:'✅ Done'});assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,task.version);store.close();
 });
+
+test('Past deadlines are read-only through cells, old date forms, and task-detail edits',()=>{
+ const store=new TaskStore();let task=store.create({...base,dueDate:'2026-11-06',dueTime:'17:30'});
+ task=store.manage({...base,id:task.id,actorId:'UME',version:task.version,action:'archive'});
+ const state={...select(task),period:'past'};
+ const table=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',period:'past'}).blocks.find(b=>b.type==='data_table');
+ assert.deepEqual(table.rows[1][2],{type:'raw_text',text:'11/06 5:30 PM'});
+ assert.match(handleAppUi(store,config,action('ui_due:assigned:'+task.id,state)).home.notice,/Current/);
+ const meta={operation:'due',taskId:task.id,version:task.version,state};
+ assert.match(handleAppUi(store,config,submit(meta,{dueDate:'2026-11-08'})).ackPayload.errors.due_date,/Current/);
+ const edit=handleAppUi(store,config,action('ui_edit:assigned:'+task.id,state)).openModal.view;
+ assert.equal(edit.blocks.some(b=>['due_date','due_time'].includes(b.block_id)),false);
+ const old=submit({...meta,operation:'edit'},{dueDate:'2026-11-08'});assert.match(JSON.stringify(handleAppUi(store,config,old)),/Current/);
+ const save=submit(JSON.parse(edit.private_metadata),{title:'Updated notes'},'UME','VPASTEDIT');delete save.view.state.values.due_date;delete save.view.state.values.due_time;
+ assert.deepEqual(handleAppUi(store,config,save).ackPayload,{});task=store.get(task.id,'TTEST');assert.equal(task.dueDate,'2026-11-06');assert.equal(task.dueTime,'17:30');store.close();
+});

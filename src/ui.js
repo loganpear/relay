@@ -33,8 +33,8 @@ function modal(operation, state, task) {
   return {...base,submit:plain(operation==='create'?'Create task':'Save changes'),blocks:[
     ...(operation==='due'?[section(task.title)]:[input('title','Task',{type:'plain_text_input',action_id:'value',max_length:240,...(task?{initial_value:task.title}:{})}),
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})})]),
-    input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(task?.dueDate?{initial_date:task.dueDate}:{})},true),
-    input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:dueTimezone,placeholder:plain('Choose a time'),...(task?.dueTime?{initial_time:task.dueTime}:{})},true),
+    ...(operation==='edit'&&state.period==='past'?[]:[input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(task?.dueDate?{initial_date:task.dueDate}:{})},true),
+    input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:dueTimezone,placeholder:plain('Choose a time'),...(task?.dueTime?{initial_time:task.dueTime}:{})},true)]),
     ...(operation!=='due'?attachmentInputs(task):[]),
     {type:'context',elements:[plain('Times use '+dueTimezoneLabel+'. Tasks are posted only in the channel configured for Relay. The assignee marks work done; the assigner gets a completion mention.')]}
   ]};
@@ -79,8 +79,14 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
         return {ackPayload:{},home:{...home,notice:choice==='archived'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.')}};
       }
       if(['create','edit','due'].includes(meta.operation)){
+        if(meta.operation==='due'&&state.period==='past')throw new TaskError('Move this task to Current before changing its due date.');
         const values=payload.view.state?.values??{};
         const task=meta.operation==='due'?store.get(meta.taskId,teamId):null;
+        if(meta.operation==='edit'&&state.period==='past'){
+          const original=store.get(meta.taskId,teamId);
+          if((values.due_date&&(values.due_date.value?.selected_date??null)!==original?.dueDate)||(values.due_time&&(values.due_time.value?.selected_time??null)!==original?.dueTime))throw new TaskError('Move this task to Current before changing its due date.');
+          values.due_date={value:{selected_date:original?.dueDate}};values.due_time={value:{selected_time:original?.dueTime}};
+        }
         const changes=validateTask({title:meta.operation==='due'?task?.title:values.title?.value?.value,assigneeId:meta.operation==='due'?task?.assigneeId:values.assignee?.value?.selected_user,dueDate:values.due_date?.value?.selected_date,dueTime:values.due_time?.value?.selected_time});
         if(['create','edit'].includes(meta.operation)&&values.details) {
           const current=meta.operation==='edit'?store.get(meta.taskId,teamId):null,existing=taskImages(current||{});
@@ -106,7 +112,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       if(['status','archive_state'].includes(meta.operation))return {ackPayload:{response_action:'errors',errors:{choice:message}}};
       if(['create','edit','due'].includes(meta.operation)){
         const field=/^Keep task details/i.test(message)&&meta.operation!=='due'?'details':/images|PNG|JPG|GIF/i.test(message)?'images':/date/i.test(message)?'due_date':/time|HH:MM/i.test(message)?'due_time':/teammate/i.test(message)?'assignee':'title';
-        return {ackPayload:{response_action:'errors',errors:{[meta.operation==='due'&& !['due_date','due_time'].includes(field)?'due_date':field]:message}}};
+        return {ackPayload:{response_action:'errors',errors:{[meta.operation==='edit'&&state.period==='past'&&['due_date','due_time'].includes(field)?'title':meta.operation==='due'&& !['due_date','due_time'].includes(field)?'due_date':field]:message}}};
       }
       return {ackPayload:failedModal(message)};
     }
@@ -155,6 +161,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       store.transition({...context,id:task.id,version:task.version,action:row.status==='done'?'complete':'reopen',receiptKey});
       return {ackPayload:{},home:{...home,...(row.status==='done'?{completionTitle:task.title}:{}),notice:row.status==='done'?'Task marked done and moved to Past.':'Task reopened.'}};
     }
+    if(name==='ui_due'&&state.period==='past')throw new TaskError('Move this task to Current before changing its due date.');
     if(['ui_edit','ui_due','ui_delete'].includes(name)){
       if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or archive a task.');
       return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'archive',state,task)}};
