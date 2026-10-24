@@ -76,7 +76,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
         if(!['active','archived'].includes(choice))throw new TaskError('Choose Active or Archived.');
         if((choice==='archived')===isTaskArchived(task))return {ackPayload:{},home};
         store.manage({...context,id:task.id,version:meta.version,action:choice==='archived'?'archive':'unarchive',receiptKey:key});
-        return {ackPayload:{},home:{...home,notice:choice==='archived'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.')}};
+        return {ackPayload:{},home};
       }
       if(['create','edit','due'].includes(meta.operation)){
         if(meta.operation==='due'&&state.period==='past')throw new TaskError('Move this task to Current before changing its due date.');
@@ -104,7 +104,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       }
       if(['archive','delete'].includes(meta.operation)){
         store.manage({...context,id:meta.taskId,version:meta.version,action:'archive',receiptKey:key});
-        return {ackPayload:{},home:{...home,notice:'Task archived. You can find it in Past.'}};
+        return {ackPayload:{},home};
       }
       throw new TaskError('Unknown form.');
     }catch(error){
@@ -170,7 +170,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     else if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'unarchive',receiptKey});
     else if(['ui_complete','ui_reopen'].includes(name))store.transition({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else throw new TaskError('Unknown task action.');
-    const notice=name==='ui_archive'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):name==='ui_unarchive'?(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.'):name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task moved to Current.';
+    const notice=['ui_archive','ui_unarchive','ui_restore'].includes(name)?undefined:name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task moved to Current.';
     return {ackPayload:{},home:{...home,...(name==='ui_complete'?{completionTitle:task.title}:{}),notice}};
   }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }

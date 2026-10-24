@@ -232,9 +232,9 @@ test('Table choice windows save explicit status and archive values with role and
  let archive=open('archive','UME','assigned').openModal.view;
  assert.deepEqual(archive.blocks[1].element.options.map(o=>o.value),['active','archived']);
  assert.equal(save(archive,'archived','UOTHER','VFORGEDARCHIVE').ackPayload.response_action,'errors');
- save(archive,'archived','UME','VARCHIVE');task=store.get(task.id,'TTEST');assert.ok(task.archivedAt);assert.equal(task.status,'done');
+ assert.equal(save(archive,'archived','UME','VARCHIVE').home.notice,undefined);task=store.get(task.id,'TTEST');assert.ok(task.archivedAt);assert.equal(task.status,'done');
  archive=open('archive','UME','assigned').openModal.view;assert.equal(archive.blocks[1].element.initial_option.value,'archived');
- save(archive,'active','UME','VACTIVE');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(task.status,'done');
+ assert.equal(save(archive,'active','UME','VACTIVE').home.notice,undefined);task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(task.status,'done');
  const reopen=open('status','UOTHER','mine').openModal.view;save(reopen,'todo','UOTHER','VREOPEN');task=store.get(task.id,'TTEST');
  archive=open('archive','UME','assigned').openModal.view;save(archive,'archived','UME','VSTOP');task=store.get(task.id,'TTEST');
  assert.equal(open('status','UOTHER','mine').openModal,undefined);assert.equal(task.status,'todo');store.close();
