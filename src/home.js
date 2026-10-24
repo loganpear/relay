@@ -50,7 +50,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, ...input })
         const canToggle = task.assigneeId === userId;
         const due = formatDue(task,{markOverdue:true});
         return [task.creatorId===userId ? cellAction('ui_edit',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task) : text(task.title),person(mode==='mine'?task.creatorId:task.assigneeId),text(due),
-          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'⬜ To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'⬜ To do'),
+          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
           ...(showManagement ? task.creatorId===userId ? [cellAction('ui_delete','Delete',mode,task)] : [text('—')] : [])];
       })]});
       const navigation=[];
