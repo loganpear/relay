@@ -57,9 +57,9 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
         const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});
         return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
-          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
+          canToggle ? cellAction('ui_choose_status',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
           ...(state.period==='past'?[createdCell(task.createdAt)]:[]),
-          ...(showManagement ? [cellAction(isTaskArchived(task)?'ui_unarchive':'ui_archive',isTaskArchived(task)?'Archived':'Active',mode,task)] : [])];
+          ...(showManagement ? [cellAction('ui_choose_archive',isTaskArchived(task)?'Archived':'Active',mode,task)] : [])];
       })]});
       const navigation=[];
       if (expanded) {
@@ -73,7 +73,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     blocks.push({type:'divider'});
   }
   if(notice&&!completionTitle)blocks.push(section(notice));
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or a status to toggle it. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or an editable Status or Archived cell to choose a value. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }

@@ -77,7 +77,7 @@ test('Inline row controls respect ownership and carry independent task identitie
  assert.ok(allActions.includes('ui_details'));assert.ok(!allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
  const assigneeView=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',filter:'all',selectedId:task.id});
  const theirActions=assigneeView.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(theirActions.includes('ui_complete'));assert.ok(theirActions.includes('ui_details'));
+ assert.ok(theirActions.includes('ui_choose_status'));assert.ok(theirActions.includes('ui_details'));
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'todo'}).total,0);
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'done'}).total,1);store.close();
@@ -117,11 +117,11 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
  const row=owner.blocks.find(b=>b.type==='data_table').rows[1];
  assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
- assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_archive');
+ assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_choose_archive');
  const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
  assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
  const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'});
- assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_reopen');store.close();
+ assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_choose_status');store.close();
 });
 
 test('Task forms set and clear due times and show missing-date errors inline',()=>{
@@ -212,4 +212,30 @@ test('Assigned-to-you details stay read-only even for self-assigned tasks',()=>{
  assert.equal(assigned.blocks.find(b=>b.type==='actions').elements[0].text.text,'Edit');
  const edit={...forged,view:{...assigned,id:'VASSIGNED',hash:'hash'}};assert.equal(handleAppUi(store,config,edit).updateModal.view.title.text,'Edit task');
  assert.ok(handleAppUi(store,config,action('ui_complete:mine:'+task.id,select(task))).home);assert.equal(store.get(task.id,'TTEST').status,'done');store.close();
+});
+
+test('Table choice windows save explicit status and archive values with role and stale checks',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ const open=(kind,actor,mode)=>handleAppUi(store,config,action(`ui_choose_${kind}:${mode}:${task.id}`,select(task),actor));
+ const save=(view,value,actor,id)=>{const p=submit(JSON.parse(view.private_metadata),{},actor,id);p.view.state.values={choice:{value:{selected_option:{value}}}};return handleAppUi(store,config,p);};
+ const status=open('status','UOTHER','mine').openModal.view;
+ assert.deepEqual(status.blocks[1].element.options.map(o=>o.value),['todo','done']);
+ assert.equal(status.blocks[1].element.initial_option.value,'todo');assert.equal(store.get(task.id,'TTEST').status,'todo');
+ assert.equal(open('status','UME','assigned').openModal,undefined);
+ assert.equal(open('archive','UOTHER','assigned').openModal,undefined);
+ assert.equal(save(status,'invalid','UOTHER','VBAD').ackPayload.response_action,'errors');
+ assert.equal(save(status,'done','UME','VFORGED').ackPayload.response_action,'errors');
+ assert.equal(save(status,'todo','UOTHER','VNOOP').ackPayload.response_action,undefined);assert.equal(store.get(task.id,'TTEST').version,0);
+ const completed=save(status,'done','UOTHER','VDONE');assert.equal(completed.home.completionTitle,task.title);
+ save(status,'done','UOTHER','VDONE');task=store.get(task.id,'TTEST');assert.equal(task.version,1);assert.equal(task.status,'done');
+ assert.equal(save(status,'todo','UOTHER','VSTALE').ackPayload.response_action,'errors');
+ let archive=open('archive','UME','assigned').openModal.view;
+ assert.deepEqual(archive.blocks[1].element.options.map(o=>o.value),['active','archived']);
+ assert.equal(save(archive,'archived','UOTHER','VFORGEDARCHIVE').ackPayload.response_action,'errors');
+ save(archive,'archived','UME','VARCHIVE');task=store.get(task.id,'TTEST');assert.ok(task.archivedAt);assert.equal(task.status,'done');
+ archive=open('archive','UME','assigned').openModal.view;assert.equal(archive.blocks[1].element.initial_option.value,'archived');
+ save(archive,'active','UME','VACTIVE');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(task.status,'done');
+ const reopen=open('status','UOTHER','mine').openModal.view;save(reopen,'todo','UOTHER','VREOPEN');task=store.get(task.id,'TTEST');
+ archive=open('archive','UME','assigned').openModal.view;save(archive,'archived','UME','VSTOP');task=store.get(task.id,'TTEST');
+ assert.equal(open('status','UOTHER','mine').openModal,undefined);assert.equal(task.status,'todo');store.close();
 });

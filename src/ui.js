@@ -39,6 +39,13 @@ function modal(operation, state, task) {
     {type:'context',elements:[plain('Times use '+dueTimezoneLabel+'. Tasks are posted only in the channel configured for Relay. The assignee marks work done; the assigner gets a completion mention.')]}
   ]};
 }
+function choiceModal(operation,state,task) {
+  const status=operation==='status';
+  const options=(status?[['todo','🔲 To do'],['done','✅ Done']]:[['active','Active'],['archived','Archived']]).map(([value,label])=>({text:plain(label),value}));
+  const current=status?task.status:isTaskArchived(task)?'archived':'active';
+  return {type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify({operation,state,taskId:task.id,version:task.version}),title:plain(status?'Change status':'Change archive state'),close:plain('Cancel'),submit:plain('Save'),blocks:[section(task.title),input('choice',status?'Status':'Archived',{type:'static_select',action_id:'value',options,initial_option:options.find(option=>option.value===current)}),
+    ...(!status?[{type:'context',elements:[plain(task.status==='todo'?'Archiving stops this task for both people. Reactivating makes it current again.':'Archiving moves this task to your Past list. Reactivating keeps it current for seven days.')]}]:[])]};
+}
 function failedModal(message){return {response_action:'update',view:{type:'modal',title:plain('Could not save'),close:plain('Close'),blocks:[section(message+' Close this form and refresh Relay before trying again.')]}};}
 export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
   if(!allowedChannelId||payload.team?.id!==teamId||!/^[UW][A-Z0-9]+$/.test(payload.user?.id??''))return null;
@@ -52,6 +59,24 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     const key=`modal:${payload.view.id}:${meta.operation}:${meta.version??"new"}`;
     try{
       if(!payload.view.id)throw new TaskError('This form has no identity.');
+      if(['status','archive_state'].includes(meta.operation)){
+        const task=store.get(meta.taskId,teamId),choice=payload.view.state?.values?.choice?.value?.selected_option?.value;
+        if(!task||task.channelId!==allowedChannelId)throw new TaskError('Choose one of your tasks first.');
+        if(meta.operation==='status'&&task.assigneeId!==actorId)throw new TaskError('Only the assignee can change status.');
+        if(meta.operation==='archive_state'&&task.creatorId!==actorId)throw new TaskError('Only the assigner can archive a task.');
+        if(store.receipt(key))return {ackPayload:{},home};
+        if(task.version!==meta.version)throw new TaskError('This task changed. Close this window and refresh Relay.');
+        if(meta.operation==='status'){
+          if(!['todo','done'].includes(choice)||task.deletedAt||(task.status==='todo'&&task.archivedAt))throw new TaskError('Choose To do or Done on an active task.');
+          if(choice===task.status)return {ackPayload:{},home};
+          store.transition({...context,id:task.id,version:meta.version,action:choice==='done'?'complete':'reopen',receiptKey:key});
+          return {ackPayload:{},home:{...home,...(choice==='done'?{completionTitle:task.title}:{}),notice:choice==='done'?'Task marked done and moved to Past.':'Task reopened.'}};
+        }
+        if(!['active','archived'].includes(choice))throw new TaskError('Choose Active or Archived.');
+        if((choice==='archived')===isTaskArchived(task))return {ackPayload:{},home};
+        store.manage({...context,id:task.id,version:meta.version,action:choice==='archived'?'archive':'unarchive',receiptKey:key});
+        return {ackPayload:{},home:{...home,notice:choice==='archived'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.')}};
+      }
       if(['create','edit','due'].includes(meta.operation)){
         const values=payload.view.state?.values??{};
         const task=meta.operation==='due'?store.get(meta.taskId,teamId):null;
@@ -77,6 +102,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       throw new TaskError('Unknown form.');
     }catch(error){
       const message=error instanceof TaskError?error.message:'Unable to save this task.';
+      if(['status','archive_state'].includes(meta.operation))return {ackPayload:{response_action:'errors',errors:{choice:message}}};
       if(['create','edit','due'].includes(meta.operation)){
         const field=/^Keep task details/i.test(message)&&meta.operation!=='due'?'details':/images|PNG|JPG|GIF/i.test(message)?'images':/date/i.test(message)?'due_date':/time|HH:MM/i.test(message)?'due_time':/teammate/i.test(message)?'assignee':'title';
         return {ackPayload:{response_action:'errors',errors:{[meta.operation==='due'&& !['due_date','due_time'].includes(field)?'due_date':field]:message}}};
@@ -115,6 +141,12 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
     if(name==='ui_details')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state,action.action_id.split(':')[1]||'assigned')}};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
+    if(['ui_choose_status','ui_choose_archive'].includes(name)){
+      const source=action.action_id.split(':')[1];
+      if(name==='ui_choose_status'&&(source!=='mine'||task.assigneeId!==actorId||task.deletedAt||(task.status==='todo'&&task.archivedAt)))throw new TaskError('Only the assignee can change status on an active task.');
+      if(name==='ui_choose_archive'&&(source!=='assigned'||task.creatorId!==actorId||task.deletedAt))throw new TaskError('Only the assigner can archive a task.');
+      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:choiceModal(name==='ui_choose_status'?'status':'archive_state',state,task)}};
+    }
     if(name==='ui_status'){
       if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
       if(task.status===row.status)return {ackPayload:{},home};
