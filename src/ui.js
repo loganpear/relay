@@ -6,7 +6,7 @@ const input = (block_id,label,element,optional=false)=>({type:'input',block_id,l
 function modal(operation, state, task) {
   const meta={operation,state,...(task?{taskId:task.id,version:task.version}:{})};
   const base={type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),title:plain(operation==='create'?'New task':operation==='edit'?'Edit task':'Delete task'),close:plain('Cancel')};
-  if(operation==='delete')return {...base,submit:plain('Move to Trash'),blocks:[section(`Move task #${task.id} “${task.title}” to Trash? It disappears from active lists, and you can restore it from Relay → Home → Trash.`)]};
+  if(operation==='delete')return {...base,submit:plain('Delete task'),blocks:[section(`Delete “${task.title}”? It will disappear from both task lists. You can undo this immediately afterward.`)]};
   return {...base,submit:plain(operation==='create'?'Create task':'Save changes'),blocks:[
     input('title','Task',{type:'plain_text_input',action_id:'value',max_length:240,...(task?{initial_value:task.title}:{})}),
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})}),
@@ -23,7 +23,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     let meta;
     try{meta=JSON.parse(payload.view.private_metadata||'{}');}catch{return {ackPayload:failedModal('Invalid form.')}}
     const state=homeState(meta.state);
-    const home={userId:actorId,...state,selectedId:null};
+    const home={userId:actorId,...state};
     const key=`modal:${payload.view.id}`;
     try{
       if(!payload.view.id)throw new TaskError('This form has no identity.');
@@ -35,8 +35,8 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
         return {ackPayload:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
       }
       if(meta.operation==='delete'){
-        store.manage({...context,id:meta.taskId,version:meta.version,action:'delete',receiptKey:key});
-        return {ackPayload:{},home:{...home,notice:'Task moved to Trash. You can restore it there.'}};
+        const deleted=store.manage({...context,id:meta.taskId,version:meta.version,action:'delete',receiptKey:key});
+        return {ackPayload:{},home:{...home,undoId:deleted.id,undoVersion:deleted.version}};
       }
       throw new TaskError('Unknown form.');
     }catch(error){
@@ -54,22 +54,26 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     const home=homeRequest(teamId,allowedChannelId,payload);
     return home?{ackPayload:{},home}:null;
   }
+  const name=action.action_id.split(':')[0];
   const state=viewState(payload),home={userId:actorId,...state};
   try{
-    if(action.action_id==='ui_new')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal('create',state)}};
-    const task=store.get(state.selectedId,teamId);
+    if(name==='ui_new')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal('create',state)}};
+    let row;
+    try { row=JSON.parse(action.value); } catch { throw new TaskError('Refresh Relay and try this task again.'); }
+    if(!Number.isSafeInteger(row.id)||!Number.isSafeInteger(row.version))throw new TaskError('Invalid task control. Refresh Relay.');
+    const task=store.get(row.id,teamId);
     if(!task||task.channelId!==allowedChannelId||![task.creatorId,task.assigneeId].includes(actorId))throw new TaskError('Choose one of your tasks first.');
-    if(state.selectedVersion!==task.version)throw new TaskError('This task changed. Select it again after refreshing.');
-    if(['ui_edit','ui_delete'].includes(action.action_id)){
+    if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
+    if(['ui_edit','ui_delete'].includes(name)){
       if(task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
-      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(action.action_id==='ui_edit'?'edit':'delete',state,task)}};
+      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':'delete',state,task)}};
     }
-    if(action.action_id==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'restore',receiptKey});
-    else if(['ui_complete','ui_reopen'].includes(action.action_id))store.transition({...context,id:task.id,version:task.version,action:action.action_id.slice(3),receiptKey});
+    if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'restore',receiptKey});
+    else if(['ui_complete','ui_reopen'].includes(name))store.transition({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else throw new TaskError('Unknown task action.');
-    const notice=action.action_id==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':action.action_id==='ui_reopen'?'Task reopened.':'Task restored.';
-    return {ackPayload:{},home:{...home,selectedId:null,notice}};
-  }catch(error){return {ackPayload:{},home:{...home,selectedId:null,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
+    const notice=name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task restored.';
+    return {ackPayload:{},home:{...home,...(name==='ui_restore'?{undoId:null,undoVersion:null}:{}),notice}};
+  }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }
 export async function runAppUiEffects(client,store,config,result){
   if(result?.openModal){

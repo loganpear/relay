@@ -147,17 +147,17 @@ export class TaskStore {
     return this.db.prepare(sql + ' ORDER BY createdAt DESC,id DESC LIMIT 50').all(...args);
   }
   history(id) { return this.db.prepare('SELECT * FROM history WHERE taskId=? ORDER BY id').all(id); }
-  personalPage({ teamId, channelId, userId, direction, page = 0, othersOnly = false, filter = 'all' }) {
+  personalPage({ teamId, channelId, userId, direction, page = 0, othersOnly = false, filter = 'all', size = 20, recentFirst = false }) {
     if (!teamId || !channelId || !userId || !['mine', 'assigned', 'trash'].includes(direction) || !['todo','done','all'].includes(filter)) throw new TaskError('Invalid personal task query.');
     const column = direction === 'mine' ? 'assigneeId' : 'creatorId';
     const where = `teamId=? AND channelId=? AND ${column}=?${direction === 'assigned' && othersOnly ? ' AND assigneeId!=?' : ''} AND deletedAt IS ${direction === 'trash' ? 'NOT ' : ''}NULL${direction !== 'trash' && filter !== 'all' ? ' AND status=?' : ''}`;
     const args = [teamId, channelId, userId, ...(direction === 'assigned' && othersOnly ? [userId] : [])];
     if (direction !== 'trash' && filter !== 'all') args.push(filter);
     const summary = this.db.prepare(`SELECT count(*) AS total,coalesce(sum(status='done'),0) AS done FROM tasks WHERE ${where}`).get(...args);
-    const size = 20;
+    size = Number.isSafeInteger(size) ? Math.max(1,Math.min(20,size)) : 20;
     const lastPage = Math.max(0, Math.ceil(summary.total / size) - 1);
     const current = Math.min(lastPage, Number.isSafeInteger(page) ? Math.max(0, page) : 0);
-    const tasks = this.db.prepare(`SELECT * FROM tasks WHERE ${where} ORDER BY CASE WHEN status='todo' THEN 0 ELSE 1 END,createdAt DESC,id DESC LIMIT ? OFFSET ?`).all(...args, size, current * size);
+    const tasks = this.db.prepare(`SELECT * FROM tasks WHERE ${where} ORDER BY ${recentFirst ? '' : "CASE WHEN status='todo' THEN 0 ELSE 1 END,"}createdAt DESC,id DESC LIMIT ? OFFSET ?`).all(...args, size, current * size);
     return { ...summary, tasks, page: current, lastPage, size };
   }
   pending() { return this.db.prepare('SELECT o.*,t.teamId FROM outbox o JOIN tasks t ON t.id=o.taskId WHERE nextAttempt<=? ORDER BY taskId LIMIT 10').all(Date.now()); }

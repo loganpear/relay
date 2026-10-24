@@ -20,22 +20,18 @@ That's all teammates need to get started. There is no separate Relay account or 
 
 ## See your tasks in Slack
 
-Open **Relay → Home** and choose:
+Open **Relay → Home**. Your two task tables are already there:
 
-- **Show tasks assigned to me** — your tasks, who assigned them, their To do / Done status, and due dates.
-- **Show tasks I’ve assigned to others** — work you handed to other people, with the assignee, status, and due date. Self-assigned tasks stay in your first view.
+- **Assigned to you** — the five newest tasks assigned to you, including self-assigned tasks.
+- **Assigned by you** — the five newest tasks you assigned to other people.
 
-Use the **To do**, **Done**, or **All** filter to choose what appears. The view opens on To do. Use **Next** and **Previous** for longer lists, and **Refresh** to pick up changes from teammates. These views are private to you and show tasks from the channel enabled for Relay.
+Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can mark work done; either the assignee or assigner can reopen it. Completing work mentions the assigner in the task’s channel thread.
 
-Choose a task below the table to manage it:
+The assigner can click the **task directions** to edit the directions, assignee, or due date, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
-- **Edit task:** the assigner can change the title, teammate, or due date.
-- **Mark done:** the assignee completes the task and notifies the assigner.
-- **Reopen task:** the assigner or assignee returns completed work to To do.
-- **Delete task:** the assigner confirms moving it to Trash.
-- **Trash → Restore task:** the assigner brings a deleted task back, with its history intact.
+Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear only once. The tables are private to you and cover the channel enabled for Relay.
 
-The shared channel card updates to match. Edits keep your current view and filter, and Relay rejects an outdated form rather than overwriting newer changes.
+**＋ New task** and **Refresh** sit at the bottom. Refresh preserves expanded lists and their pages. No task selector or view switching is needed.
 
 ## Your first task
 
@@ -58,7 +54,7 @@ The assignee clicks **Mark done**. Relay updates the card and posts a completion
 | Type this in your Relay channel | What you see |
 | --- | --- |
 | `/tasks mine` | Your unfinished tasks |
-| `/tasks assigned` | Unfinished tasks you assigned to others |
+| `/tasks assigned` | Unfinished tasks you assigned |
 | `/tasks team` | The channel's unfinished tasks |
 | `/tasks all` | The channel's tasks, including completed work |
 

@@ -58,13 +58,13 @@ No package installation is needed. Wait for **Relay connected to Slack**. Leave 
 In your private test channel:
 
 1. Open **Relay → Home → ＋ New task**. Enter a title, select yourself, and click **Create task**.
-2. Select the task below the Home table and click **Mark done**. Switch the filter to **Done** to see it.
+2. Click the task’s **To do** status directly in its Home table row. It changes to **Done** in place.
 3. Open the task’s card in the test channel and check its thread for the completion mention.
 4. Type `/tasks all` to see the saved task.
 
 Then repeat with a teammate: assign them a task, have them mark it done, and check the completion mention you receive. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
 
-Open **Relay → Home** to try **Show tasks assigned to me** and **Show tasks I’ve assigned to others**. The tables are private to the person opening them.
+Open **Relay → Home** to see both **Assigned to you** and **Assigned by you** tables immediately. Each shows five recent tasks, with **Show more** for longer lists. The tables are private to the person opening them.
 
 ## If something isn't working
 
