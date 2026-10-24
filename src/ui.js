@@ -9,7 +9,7 @@ export function taskDetails(task,actorId,state={},source='assigned') {
   const blocks=[section(task.title),{type:'section',fields:[
     {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
     {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
-    {type:'plain_text',text:`Status: ${task.deletedAt?'Deleted':task.status==='done'?'✅ Done':'🔲 To do'}`},
+    {type:'plain_text',text:`Status: ${task.deletedAt?'Deleted':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'}`},
     {type:'plain_text',text:`Due: ${formatDue(task)} (${dueTimezoneLabel})`}
   ]},{type:'divider'}];
   const details=task.details||'No additional details yet.';
@@ -128,7 +128,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     else if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'restore',receiptKey});
     else if(['ui_complete','ui_reopen'].includes(name))store.transition({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else throw new TaskError('Unknown task action.');
-    const notice=name==='ui_archive'?'Task moved to Past for you.':name==='ui_unarchive'?'Task moved to Current for you for seven days.':name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task restored.';
+    const notice=name==='ui_archive'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):name==='ui_unarchive'?(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.'):name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task restored.';
     return {ackPayload:{},home:{...home,...(name==='ui_restore'?{undoId:null,undoVersion:null}:{}),notice}};
   }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }

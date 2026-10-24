@@ -12,12 +12,12 @@ export const escapeSlack = text => String(text).replaceAll('&', '&amp;').replace
 
 export function taskMessage(task) {
   const choices = [];
-  if (!task.deletedAt) choices.push(task.status === 'todo' ? ['complete', 'Mark done'] : ['reopen', 'Reopen']);
+  if (!task.deletedAt && !(task.status==='todo'&&task.archivedAt)) choices.push(task.status === 'todo' ? ['complete', 'Mark done'] : ['reopen', 'Reopen']);
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `Relay · Task #${task.id}` } },
     { type: 'section', text: { type: 'plain_text', text: task.title } },
     { type: 'section', fields: [
-      { type: 'mrkdwn', text: `*Status*\n${task.deletedAt ? 'Deleted' : labels[task.status]}` },
+      { type: 'mrkdwn', text: `*Status*\n${task.deletedAt ? 'Deleted' : task.status==='todo'&&task.archivedAt?'Archived':labels[task.status]}` },
       { type: 'mrkdwn', text: `*Assigned to*\n<@${task.assigneeId}>` },
       { type: 'mrkdwn', text: `*Assigned by*\n<@${task.creatorId}>` },
       { type: 'mrkdwn', text: `*Due*\n${task.dueDate ? formatDue(task)+' ('+dueTimezoneLabel+')' : 'No deadline'}` }
@@ -28,8 +28,8 @@ export function taskMessage(task) {
     value: JSON.stringify({ id: task.id, version: task.version }),
     ...(action === 'complete' ? { style: 'primary' } : {})
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Deleted.' : task.status === 'done' ? 'Relay · Done. Only the assignee can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
-  return { text: `Task #${task.id}: ${task.title} — ${task.deletedAt ? 'Deleted' : labels[task.status]}`, blocks };
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Deleted.' : task.status==='todo'&&task.archivedAt?'Relay · Archived. Work is no longer required. The assigner can move it to Current to reactivate it.':task.status === 'done' ? 'Relay · Done. Only the assignee can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
+  return { text: `Task #${task.id}: ${task.title} — ${task.deletedAt ? 'Deleted' : task.status==='todo'&&task.archivedAt?'Archived':labels[task.status]}`, blocks };
 }
 
 export class SlackClient {

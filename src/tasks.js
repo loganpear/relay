@@ -15,7 +15,7 @@ export function formatDue(task,{now=new Date(),markOverdue=false}={}) {
   const result=task.dueDate.slice(5).replace('-','/')+(displayTime?' '+displayTime:'');
   const parts=Object.fromEntries(dueClock.formatToParts(now).map(part=>[part.type,part.value]));
   const today=`${parts.year}-${parts.month}-${parts.day}`,time=`${parts.hour}:${parts.minute}`;
-  const overdue=task.status==='todo'&&(task.dueDate<today||(task.dueDate===today&&task.dueTime&&task.dueTime<time));
+  const overdue=task.status==='todo'&&!task.archivedAt&&!task.deletedAt&&(task.dueDate<today||(task.dueDate===today&&task.dueTime&&task.dueTime<time));
   return (markOverdue&&overdue?'Overdue · ':'')+result;
 }
 export function validateTask(input) {
@@ -209,6 +209,7 @@ export class TaskStore {
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
       if (task.deletedAt) throw new TaskError('This task was deleted. Its assigner can restore it from Past.');
+      if(task.status==='todo'&&task.archivedAt)throw new TaskError('This task was archived. Its assigner can move it to Current before work resumes.');
       const canComplete = action === 'complete' && task.status === 'todo' && actorId === task.assigneeId;
       const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.assigneeId;
       if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can change this task’s status.');
@@ -227,7 +228,7 @@ export class TaskStore {
     const args = [teamId, channelId];
     if (mode === 'mine') { sql += ' AND assigneeId=?'; args.push(userId); }
     if (mode === 'assigned') { sql += ' AND creatorId=?'; args.push(userId); }
-    if (!includeDone) sql += " AND status!='done'";
+    if (!includeDone) sql += " AND status!='done' AND archivedAt IS NULL";
     return this.db.prepare(sql + ' ORDER BY createdAt DESC,id DESC LIMIT 50').all(...args);
   }
   history(id) { return this.db.prepare('SELECT * FROM history WHERE taskId=? ORDER BY id').all(id); }
@@ -239,7 +240,7 @@ export class TaskStore {
     if (direction !== 'trash' && filter !== 'all') args.push(filter);
     if(period!=='all'&&direction!=='trash') {
       const role = direction==='mine'?'assigneeId':'creatorId';
-      const current = direction==='mine' ? "deletedAt IS NULL AND status='todo'" : "deletedAt IS NULL AND archivedAt IS NULL AND (status='todo' OR coalesce(creatorCurrentUntil,strftime('%Y-%m-%dT%H:%M:%fZ',completedAt,'+7 days'))>?)";
+      const current = direction==='mine' ? "deletedAt IS NULL AND archivedAt IS NULL AND status='todo'" : "deletedAt IS NULL AND archivedAt IS NULL AND (status='todo' OR coalesce(creatorCurrentUntil,strftime('%Y-%m-%dT%H:%M:%fZ',completedAt,'+7 days'))>?)";
       where=`teamId=? AND channelId=? AND ${role}=? AND ${period==='past'?'NOT ':''}(${current})`;
       args.length=0;args.push(teamId,channelId,userId);if(direction==='assigned')args.push(now.toISOString());
     }
@@ -281,8 +282,8 @@ export class TaskStore {
         const data = validateTask(changes);
         const extra=validateDetails(changes.details??task.details,changes.images??taskImages(task));
         this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,details=?,images=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,extra.details,JSON.stringify(extra.images),now,id);
-      } else if (['archive','unarchive'].includes(action) && !task.deletedAt && task.status==='done') {
-        this.db.prepare('UPDATE tasks SET archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
+      } else if (['archive','unarchive'].includes(action) && !task.deletedAt ) {
+        this.db.prepare('UPDATE tasks SET archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'&&task.status==='done'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
       } else if (action === 'delete' && !task.deletedAt) {
         this.db.prepare('UPDATE tasks SET deletedAt=?,version=version+1,updatedAt=? WHERE id=?').run(now,now,id);
         this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);

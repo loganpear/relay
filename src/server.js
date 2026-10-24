@@ -19,7 +19,7 @@ export function handleCommand(store, form, receiptKey) {
     if (!['mine', 'assigned', 'team', 'all'].includes(mode)) return ephemeral(help);
     const tasks = store.list({ ...context, mode, includeDone: mode === 'all' });
     if (!tasks.length) return ephemeral('No matching tasks in this channel. Create one with /task @person Task title.');
-    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
+    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${task.status==='todo'&&task.archivedAt?'Archived':labels[task.status]}* · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
   }
   if (form.command !== '/task') throw new TaskError('Unknown command. Use /task or /tasks.');
   if (!text || text === 'help') return ephemeral(help);

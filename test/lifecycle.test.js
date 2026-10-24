@@ -23,7 +23,6 @@ test('Completion leaves assignee Current immediately and assigner Current exactl
 });
 test('Archive is creator-only, changes only their list, and reopening resets lifecycle state',()=>{
  const store=new TaskStore();let task=store.create(base);
- assert.throws(()=>store.manage({...context,id:task.id,version:task.version,action:'archive'}));
  task=store.transition({...context,id:task.id,actorId:base.assigneeId,action:'complete'});
  assert.throws(()=>store.manage({...context,actorId:base.assigneeId,id:task.id,version:task.version,action:'archive'}));
  const original=task.completedAt;
@@ -64,4 +63,22 @@ test('Lifecycle migration preserves old completion dates and archived state surv
   task=store.manage({...context,id:task.id,version:task.version,action:'archive'});store.close();store=new TaskStore(path);
   assert.equal(page(store,base.creatorId,'assigned','past').total,1);assert.equal(store.get(task.id,base.teamId).archivedAt,task.archivedAt);
  }finally{store.close();rmSync(dir,{recursive:true});}
+});
+
+test('Archiving To do stops work for both people without completion and can be reactivated',async()=>{
+ const {taskMessage}=await import('../src/slack.js');const store=new TaskStore();let task=store.create(base);
+ assert.throws(()=>store.manage({...context,actorId:base.assigneeId,id:task.id,version:task.version,action:'archive'}),/assigner/);
+ task=store.manage({...context,id:task.id,version:task.version,action:'archive',receiptKey:'archive-todo'});
+ assert.equal(task.status,'todo');assert.equal(task.completedAt,null);
+ for(const [user,role] of [[base.creatorId,'assigned'],[base.assigneeId,'mine']]){assert.equal(page(store,user,role,'current').total,0);assert.equal(page(store,user,role,'past').total,1);}
+ assert.equal(store.list({...base,userId:base.assigneeId,mode:'mine'}).length,0);
+ assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,0);
+ assert.throws(()=>store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'}),/archived/);
+ const card=taskMessage(task);assert.equal(card.blocks.some(b=>b.type==='actions'),false);assert.match(card.text,/Archived/);
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1][3].element,undefined);
+ const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][4].element.text.text,'Move to Current');
+ task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});
+ assert.equal(task.status,'todo');assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
+ assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','current').total,1);
+ store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'});assert.equal(store.get(task.id,base.teamId).status,'done');store.close();
 });
