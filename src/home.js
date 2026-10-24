@@ -57,9 +57,9 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
         const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});
         return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
-          canToggle ? cellAction('ui_choose_status',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
+          canToggle ? cellAction('ui_choose_status',task.status==='todo'?'▾ 🔲 To do':'▾ ✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
           ...(state.period==='past'?[createdCell(task.createdAt)]:[]),
-          ...(showManagement ? [cellAction('ui_choose_archive',isTaskArchived(task)?'Archived':'Active',mode,task)] : [])];
+          ...(showManagement ? [cellAction('ui_choose_archive',isTaskArchived(task)?'▾ Archived':'▾ Active',mode,task)] : [])];
       })]});
       const navigation=[];
       if (expanded) {
