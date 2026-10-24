@@ -205,3 +205,16 @@ test('New tasks save details and a second save in the same details modal is not 
  }
  store.close();
 });
+
+test('Assigned-to-you details stay read-only even for self-assigned tasks',()=>{
+ const store=new TaskStore();const task=store.create({...base,assigneeId:'UME'});
+ const mine=handleAppUi(store,config,action('ui_details:mine:'+task.id,select(task))).openModal.view;
+ assert.equal(mine.blocks.some(b=>b.type==='actions'),false);
+ const forged={...action('ui_edit_details',select(task)),view:{...mine,id:'VMINE',hash:'hash'}};
+ assert.equal(handleAppUi(store,config,forged).updateModal.view.title.text,'Could not save');
+ for(const name of ['ui_edit','ui_due','ui_delete'])assert.equal(handleAppUi(store,config,action(name+':mine:'+task.id,select(task))).openModal,undefined);
+ const assigned=handleAppUi(store,config,action('ui_details:assigned:'+task.id,select(task))).openModal.view;
+ assert.equal(assigned.blocks.find(b=>b.type==='actions').elements[0].text.text,'Edit');
+ const edit={...forged,view:{...assigned,id:'VASSIGNED',hash:'hash'}};assert.equal(handleAppUi(store,config,edit).updateModal.view.title.text,'Edit task');
+ assert.ok(handleAppUi(store,config,action('ui_complete:mine:'+task.id,select(task))).home);assert.equal(store.get(task.id,'TTEST').status,'done');store.close();
+});

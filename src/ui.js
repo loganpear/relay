@@ -5,7 +5,7 @@ const plain = text => ({type:'plain_text',text});
 const input = (block_id,label,element,optional=false)=>({type:'input',block_id,label:plain(label),element,...(optional?{optional:true}:{})});
 const uploadsEnabled = () => process.env.SLACK_IMAGE_UPLOADS === 'true';
 const imageBlocks = task => taskImages(task).map((id,index)=>({type:'image',slack_file:{id},alt_text:`Task image ${index+1}`}));
-export function taskDetails(task,actorId,state={}) {
+export function taskDetails(task,actorId,state={},source='assigned') {
   const blocks=[section(task.title),{type:'section',fields:[
     {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
     {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
@@ -15,8 +15,8 @@ export function taskDetails(task,actorId,state={}) {
   const details=task.details||'No additional details yet.';
   for(let i=0;i<details.length;i+=3000)blocks.push(section(details.slice(i,i+3000)));
   blocks.push(...imageBlocks(task));
-  if(actorId===task.creatorId)blocks.push({type:'actions',elements:[button('ui_edit_details','Edit',{id:task.id,version:task.version})]});
-  return {type:'modal',callback_id:'relay_task_details',title:plain('Task details'),close:plain('Close'),private_metadata:JSON.stringify({state:homeState(state)}),blocks};
+  if(source==='assigned'&&actorId===task.creatorId)blocks.push({type:'actions',elements:[button('ui_edit_details','Edit',{id:task.id,version:task.version})]});
+  return {type:'modal',callback_id:'relay_task_details',title:plain('Task details'),close:plain('Close'),private_metadata:JSON.stringify({state:homeState(state),source}),blocks};
 }
 function attachmentInputs(task) {
   const images=taskImages(task);
@@ -87,6 +87,8 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
   if(payload.view.type==='modal') {
     if(payload.view.callback_id!=='relay_task_details'||payload.actions[0].action_id!=='ui_edit_details')return null;
     try {
+      const origin=JSON.parse(payload.view.private_metadata||'{}');
+      if(origin.source!=='assigned')throw new TaskError('Edit tasks from Assigned by you.');
       const row=JSON.parse(payload.actions[0].value),task=store.get(row.id,teamId);
       if(!task||task.channelId!==allowedChannelId||task.creatorId!==actorId||task.deletedAt||task.version!==row.version)throw new TaskError('This task changed. Close and reopen it before editing.');
       const state=homeState(JSON.parse(payload.view.private_metadata||'{}').state);
@@ -109,7 +111,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     const task=store.get(row.id,teamId);
     if(!task||task.channelId!==allowedChannelId||![task.creatorId,task.assigneeId].includes(actorId))throw new TaskError('Choose one of your tasks first.');
     if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
-    if(name==='ui_details'&&!task.deletedAt)return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state)}};
+    if(name==='ui_details'&&!task.deletedAt)return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state,action.action_id.split(':')[1]||'assigned')}};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
     if(name==='ui_status'){
       if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
@@ -118,7 +120,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       return {ackPayload:{},home:{...home,notice:row.status==='done'?'Task marked done. Its assigner will receive a completion mention.':'Task reopened.'}};
     }
     if(['ui_edit','ui_due','ui_delete'].includes(name)){
-      if(task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
+      if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
       return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'delete',state,task)}};
     }
     if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'restore',receiptKey});
