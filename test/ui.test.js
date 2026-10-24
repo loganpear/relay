@@ -68,7 +68,8 @@ test('Mark done and Reopen enforce roles and support completing a task again',()
  assert.throws(()=>store.transition({...base,id:task.id,actorId:'UME',version:0,action:'complete'}));
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:0,action:'complete'});
  store.notificationDelivered(store.pendingNotifications()[0]?.notificationId??1,'sent');
- task=store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'reopen'});
+ assert.throws(()=>store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'reopen'}),/assignee/);
+ task=store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'reopen'});
  assert.equal(task.status,'todo');
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'complete'});
  assert.equal(task.status,'done');assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,2);
@@ -107,8 +108,23 @@ test('Previously published dropdowns remain safe during the table rollout',()=>{
  const done=choose('done');const result=handleAppUi(store,config,done,'dropdown-done');assert.equal(result.openModal,undefined);assert.equal(result.ackPayload.response_action,undefined);
  handleAppUi(store,config,done,'dropdown-done');task=store.get(task.id,'TTEST');assert.equal(task.status,'done');assert.equal(task.version,1);assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,1);
  assert.match(handleAppUi(store,config,done,'stale').home.notice,/changed/);
- handleAppUi(store,config,choose('todo','UME'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
+ assert.match(handleAppUi(store,config,choose('todo','UME'),'owner-reopen').home.notice,/assignee/);
+ assert.equal(store.get(task.id,'TTEST').status,'done');
+ handleAppUi(store,config,choose('todo'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
  assert.match(handleAppUi(store,config,choose('done','UME'),'forged').home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'todo');
  handleAppUi(store,config,choose('todo'),'noop');assert.equal(store.get(task.id,'TTEST').version,2);
  assert.match(handleAppUi(store,config,choose('invalid'),'invalid').home.notice,/Choose/);store.close();
+});
+
+test('Assigned-by-you status is read-only and stale creator buttons cannot reopen tasks',()=>{
+ const store=new TaskStore();let task=store.create(base);
+ task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
+ const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
+ const row=owner.blocks.find(b=>b.type==='data_table').rows[1];
+ assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
+ assert.equal(row[0].element.action_id.split(':')[0],'ui_edit');assert.equal(row[4].element.action_id.split(':')[0],'ui_delete');
+ const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
+ assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
+ const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
+ assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].element.action_id.split(':')[0],'ui_reopen');store.close();
 });

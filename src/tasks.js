@@ -126,8 +126,8 @@ export class TaskStore {
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
       if (task.deletedAt) throw new TaskError('This task is in Trash. Its assigner can restore it.');
       const canComplete = action === 'complete' && task.status === 'todo' && actorId === task.assigneeId;
-      const canReopen = action === 'reopen' && task.status === 'done' && [task.assigneeId,task.creatorId].includes(actorId);
-      if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can mark a task done; the assignee or assigner can reopen it.');
+      const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.assigneeId;
+      if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can change this task’s status.');
       const now = new Date().toISOString();
       this.db.prepare('UPDATE tasks SET status=?,version=version+1,updatedAt=? WHERE id=?').run(canComplete ? 'done' : 'todo', now, id);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, actorId, action, now);

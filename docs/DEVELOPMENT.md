@@ -91,7 +91,7 @@ On first startup, the two-status migration preserves Done tasks, maps all other 
 
 Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. Home immediately displays two data_table blocks: the newest five tasks assigned to the viewer and the newest five they assigned to others. Self-assigned work appears only in the first table. Each list expands independently to 20 rows and pages through older work, so payload sizes stay bounded. Refresh preserves expansion and page state; reopening Home returns to five rows per list. Opening Messages also initializes Home for first-time users.
 
-Status, task directions (Edit), and Delete use action_cell buttons. Each button carries its own task ID and version, with a unique action_id per task and list. Queries and mutations use the authenticated actor plus the configured workspace and channel. Legacy clients that cannot render action cells show a text fallback; channel-card controls and slash commands remain available. Publishing Home sends no channel messages.
+Status, task directions (Edit), and Delete use action_cell buttons. Each button carries its own task ID and version, with a unique action_id per task and list. Only the assignee can complete or reopen work. Assigned-by-you status cells are read-only, and backend authorization also rejects old creator buttons. Queries and mutations use the authenticated actor plus the configured workspace and channel. Legacy clients that cannot render action cells show a text fallback; channel-card controls and slash commands remain available. Publishing Home sends no channel messages.
 
 ## Task management from Home
 

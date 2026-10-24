@@ -28,7 +28,7 @@ export function taskMessage(task) {
     value: JSON.stringify({ id: task.id, version: task.version }),
     ...(action === 'complete' ? { style: 'primary' } : {})
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Deleted.' : task.status === 'done' ? 'Relay · Done. The assignee or assigner can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Deleted.' : task.status === 'done' ? 'Relay · Done. Only the assignee can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
   return { text: `Task #${task.id}: ${task.title} — ${task.deletedAt ? 'Deleted' : labels[task.status]}`, blocks };
 }
 

@@ -25,7 +25,7 @@ Open **Relay → Home**. Your two task tables are already there:
 - **Assigned to you** — the five newest tasks assigned to you, including self-assigned tasks.
 - **Assigned by you** — the five newest tasks you assigned to other people.
 
-Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can mark work done; either the assignee or assigner can reopen it. Completing work mentions the assigner in the task’s channel thread.
+Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can change a task’s status, including reopening it. Status in Assigned by you is read-only. Completing work mentions the assigner in the task’s channel thread.
 
 The assigner can click the **task directions** to edit the directions, assignee, or due date, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
@@ -74,7 +74,7 @@ Use year-month-day for dates.
 
 Relay requests permission to receive its commands and post its task cards. It does not request permission to read channel history or your workspace's user directory.
 
-Only the assignee can mark a task done. The assigner can edit, delete, and restore it; either person can reopen it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
+Only the assignee can complete or reopen a task. The assigner can edit, delete, and restore it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
 
 ## Building on Relay
 
