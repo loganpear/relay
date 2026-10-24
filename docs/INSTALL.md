@@ -75,3 +75,7 @@ Open **Relay → Home** to see both **Assigned to you** and **Assigned by you** 
 - **A button is unavailable:** only the assignee can mark an unfinished task done.
 
 For a persistent server setup and technical details, see the [developer guide](DEVELOPMENT.md).
+
+### Task images
+
+Both app manifests include the `files:read` bot scope required by Slack’s native image uploader. After installing or reinstalling with that permission, set `SLACK_IMAGE_UPLOADS=true` and restart Relay. Until then, text details remain available and the image picker stays hidden. Images stay hosted in Slack; Relay stores their file IDs rather than copying image bytes or creating public links.

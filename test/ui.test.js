@@ -79,10 +79,10 @@ test('Inline row controls respect ownership and carry independent task identitie
  const store=new TaskStore();let task=store.create(base);
  const view=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',...select(task)});
  const allActions=view.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(allActions.includes('ui_edit'));assert.ok(allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
+ assert.ok(allActions.includes('ui_details'));assert.ok(allActions.includes('ui_delete'));assert.ok(!allActions.includes('ui_complete'));
  const assigneeView=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',filter:'all',selectedId:task.id});
  const theirActions=assigneeView.blocks.flatMap(b=>b.rows?.slice(1).flatMap(r=>r.map(c=>c.element?.action_id?.split(':')[0]))??[]);
- assert.ok(theirActions.includes('ui_complete'));assert.ok(!theirActions.includes('ui_edit'));
+ assert.ok(theirActions.includes('ui_complete'));assert.ok(theirActions.includes('ui_details'));
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'todo'}).total,0);
  assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'mine',filter:'done'}).total,1);store.close();
@@ -122,7 +122,7 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
  const row=owner.blocks.find(b=>b.type==='data_table').rows[1];
  assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
- assert.equal(row[0].element.action_id.split(':')[0],'ui_edit');assert.equal(row[4].element.action_id.split(':')[0],'ui_delete');
+ assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_delete');
  const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
  assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
  const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
@@ -155,4 +155,53 @@ test('Due cells let only the assigner change or clear deadlines without changing
  const stale=handleAppUi(store,config,submit(meta,{dueDate:'2026-11-09'},'UME','VDUESTALE'));assert.match(stale.ackPayload.errors.due_date,/changed/);
  const current=JSON.parse(handleAppUi(store,config,action('ui_due',select(task))).openModal.view.private_metadata);
  handleAppUi(store,config,submit(current,{},'UME','VDUECLEAR'));task=store.get(task.id,'TTEST');assert.equal(task.dueDate,null);assert.equal(task.dueTime,null);store.close();
+});
+
+test('Task names open shared details, only creators edit, and saves return to details',()=>{
+ const store=new TaskStore();let task=store.create({...base,details:'Requirements\n<!channel> is plain text'});
+ const opened=handleAppUi(store,config,action('ui_details',select(task),'UOTHER')).openModal.view;
+ assert.equal(opened.title.text,'Task details');assert.match(JSON.stringify(opened),/Requirements/);assert.equal(opened.blocks.some(b=>b.type==='actions'),false);
+ assert.equal(handleAppUi(store,config,action('ui_details',select(task),'USTRANGER')).openModal,undefined);
+ const owner=handleAppUi(store,config,action('ui_details',select(task))).openModal.view;
+ const editAction={...action('ui_edit_details',select(task)),view:{...owner,id:'VDETAILS',hash:'hash'}};
+ const result=handleAppUi(store,config,editAction);assert.equal(result.updateModal.view_id,'VDETAILS');
+ const form=result.updateModal.view;assert.equal(form.blocks.find(b=>b.block_id==='details').element.initial_value,task.details);
+ const payload=submit(JSON.parse(form.private_metadata),{title:base.title},'UME','VDETAILSSAVE');
+ payload.view.state.values.details={value:{value:'New requirements'}};
+ const saved=handleAppUi(store,config,payload);assert.equal(saved.ackPayload.response_action,'update');assert.equal(saved.ackPayload.view.title.text,'Task details');
+ task=store.get(task.id,'TTEST');assert.equal(task.details,'New requirements');assert.deepEqual(JSON.parse(task.images),[]);
+ const denied=handleAppUi(store,config,{...editAction,user:{id:'UOTHER'}});assert.equal(denied.updateModal.view.title.text,'Could not save');
+ const old=handleAppUi(store,config,payload);assert.match(JSON.stringify(old),/Changes saved/);assert.equal(store.history(task.id).filter(h=>h.action==='edit').length,1);store.close();
+});
+
+test('Details persist and image controls preserve or unlink attachments without file deletion',()=>{
+ const old=process.env.SLACK_IMAGE_UPLOADS;process.env.SLACK_IMAGE_UPLOADS='true';
+ try{
+ const store=new TaskStore();let task=store.create({...base,details:'Read this',images:['FIMAGE1']});
+ const edit=handleAppUi(store,config,action('ui_edit',select(task))).openModal.view;
+ assert.equal(edit.blocks.find(b=>b.block_id==='images').element.type,'file_input');
+ const payload=submit(JSON.parse(edit.private_metadata),{title:base.title},'UME','VIMAGES');
+ payload.view.state.values.details={value:{value:'With pictures'}};
+ payload.view.state.values.keep_images={value:{selected_options:[{value:'FIMAGE1'}]}};
+ payload.view.state.values.images={value:{files:[{id:'FIMAGE2',mimetype:'image/png'}]}};
+ assert.deepEqual(handleAppUi(store,config,payload).ackPayload,{});task=store.get(task.id,'TTEST');assert.deepEqual(JSON.parse(task.images),['FIMAGE1','FIMAGE2']);
+ const form=handleAppUi(store,config,action('ui_edit',select(task))).openModal.view;
+ const clear=submit(JSON.parse(form.private_metadata),{title:base.title},'UME','VCLEARIMAGES');clear.view.state.values.details={value:{value:''}};
+ handleAppUi(store,config,clear);task=store.get(task.id,'TTEST');assert.equal(task.details,'');assert.deepEqual(JSON.parse(task.images),[]);
+ const forged=submit(JSON.parse(handleAppUi(store,config,action('ui_edit',select(task))).openModal.view.private_metadata),{title:base.title},'UME','VFORGED');forged.view.state.values.details={value:{value:'x'}};forged.view.state.values.keep_images={value:{selected_options:[{value:'FUNRELATED'}]}};
+ assert.equal(handleAppUi(store,config,forged).ackPayload.response_action,'errors');assert.equal(store.get(task.id,'TTEST').details,'');store.close();
+ }finally{if(old===undefined)delete process.env.SLACK_IMAGE_UPLOADS;else process.env.SLACK_IMAGE_UPLOADS=old;}
+});
+
+test('New tasks save details and a second save in the same details modal is not deduplicated',()=>{
+ const store=new TaskStore();const form=handleAppUi(store,config,action('ui_new')).openModal.view;
+ const create=submit(JSON.parse(form.private_metadata),{title:'Details on creation'},'UME','VCREATEDETAILS');create.view.state.values.details={value:{value:'First requirements'}};
+ assert.deepEqual(handleAppUi(store,config,create).ackPayload,{});
+ let task=store.list({teamId:'TTEST',channelId:'CTEST'})[0];assert.equal(task.details,'First requirements');
+ for(const details of ['Second requirements','Third requirements']) {
+ const edit=handleAppUi(store,config,action('ui_edit',select(task))).openModal.view;
+ const payload=submit(JSON.parse(edit.private_metadata),{title:task.title},'UME','VSAME');payload.view.state.values.details={value:{value:details}};
+ assert.deepEqual(handleAppUi(store,config,payload).ackPayload,{});task=store.get(task.id,'TTEST');assert.equal(task.details,details);
+ }
+ store.close();
 });

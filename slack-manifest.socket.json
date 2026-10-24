@@ -13,7 +13,7 @@
       {
         "command": "/task",
         "description": "Assign a task",
-        "usage_hint": "@person Task title --due YYYY-MM-DD",
+        "usage_hint": "@person Task title --due MM/DD HH:MM AM/PM",
         "should_escape": true
       },
       {
@@ -33,7 +33,8 @@
     "scopes": {
       "bot": [
         "commands",
-        "chat:write"
+        "chat:write",
+        "files:read"
       ]
     }
   },

@@ -114,7 +114,7 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
       } else {
         const payload = JSON.parse(form.payload ?? '{}');
         if (payload.team?.id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
-        if (payload.view?.type === 'home' || payload.type === 'view_submission') {
+        if (['home','modal'].includes(payload.view?.type) || payload.type === 'view_submission') {
           const ui=handleAppUi(store,{teamId,allowedChannelId},payload,key);
           send(res,200,ui?.ackPayload??{});
           if(ui&&client)void runAppUiEffects(client,store,{teamId,allowedChannelId},ui).catch(()=>{});

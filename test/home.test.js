@@ -28,12 +28,12 @@ test('Independent expansion pages all older records and collapses to the newest 
  const store=new TaskStore();for(let i=0;i<47;i++)store.create({...base,title:`Task ${i}`});
  for(let i=0;i<7;i++)store.create({...base,creatorId:'UME',assigneeId:'UOTHER',title:`Delegated ${i}`});
  const first=taskHome(store,context);assert.equal(tables(first)[0].rows.length,6);assert.equal(tables(first)[1].rows.length,6);
- assert.equal(tables(first)[0].rows[1][0].text,'Task 46');
+ assert.equal(tables(first)[0].rows[1][0].element.text.text,'Task 46');
  const expanded=homeRequest('TTEST','CTEST',action('home_expand_mine'));
  assert.equal(expanded.mineExpanded,true);assert.equal(expanded.assignedExpanded,false);
  const view=taskHome(store,{...context,...expanded});assert.equal(tables(view)[0].rows.length,21);assert.equal(tables(view)[1].rows.length,6);
  const second=homeRequest('TTEST','CTEST',action('home_next_mine',expanded));assert.equal(second.minePage,1);
- assert.equal(tables(taskHome(store,{...context,...second}))[0].rows[1][0].text,'Task 26');
+ assert.equal(tables(taskHome(store,{...context,...second}))[0].rows[1][0].element.text.text,'Task 26');
  const last=taskHome(store,{...context,mineExpanded:true,minePage:999});assert.equal(tables(last)[0].rows.length,8);assert.equal(JSON.parse(last.private_metadata).minePage,2);
  const collapsed=homeRequest('TTEST','CTEST',action('home_collapse_mine',second));assert.equal(collapsed.mineExpanded,false);assert.equal(collapsed.minePage,0);
  assert.ok(actions(view).some(e=>e.action_id==='home_next_mine'));store.close();
@@ -62,6 +62,6 @@ test('Socket Mode acknowledges Home events and table expansion',()=>{
 test('Home publishes privately and escapes task directions by using plain text cells',async()=>{
  const store=new TaskStore();store.create({...base,title:'<!channel> *not markup*'});let call;
  await publishTaskHome({call:async(method,args)=>{call={method,args};}},store,context);
- assert.equal(call.method,'views.publish');assert.equal(call.args.user_id,'UME');assert.equal(tables(call.args.view)[0].rows[1][0].type,'raw_text');
- assert.match(tables(call.args.view)[0].rows[1][0].text,/<!channel>/);store.close();
+ assert.equal(call.method,'views.publish');assert.equal(call.args.user_id,'UME');assert.equal(tables(call.args.view)[0].rows[1][0].type,'action_cell');
+ assert.match(tables(call.args.view)[0].rows[1][0].element.text.text,/<!channel>/);store.close();
 });

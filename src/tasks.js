@@ -70,6 +70,15 @@ export function parseTask(text, {now=new Date()}={}) {
   return { assigneeId: match[1], title, dueDate, ...(dueTime?{dueTime}:{}) };
 }
 
+export function taskImages(task={}) {
+  try { return JSON.parse(task.images || '[]'); } catch { return []; }
+}
+export function validateDetails(details, images=[]) {
+  if(typeof details!=='string'||details.length>3000)throw new TaskError('Keep task details under 3,000 characters.');
+  if(!Array.isArray(images)||images.length>5||images.some(id=>typeof id!=='string'||!/^F[A-Z0-9]+$/.test(id)))throw new TaskError('Attach up to five images.');
+  return {details:details.trim(),images:[...new Set(images)]};
+}
+
 export class TaskStore {
   constructor(path = ':memory:') {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
@@ -134,6 +143,13 @@ export class TaskStore {
       for(const task of this.db.prepare('SELECT id FROM tasks WHERE deletedAt IS NULL AND messageTs IS NOT NULL').all())this.enqueue(task.id);
       this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('due-time');
     });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('task-details'))return;
+      const columns=this.db.prepare('PRAGMA table_info(tasks)').all().map(c=>c.name);
+      if(!columns.includes('details'))this.db.exec("ALTER TABLE tasks ADD COLUMN details TEXT NOT NULL DEFAULT ''");
+      if(!columns.includes('images'))this.db.exec("ALTER TABLE tasks ADD COLUMN images TEXT NOT NULL DEFAULT '[]'");
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('task-details');
+    });
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -149,10 +165,10 @@ export class TaskStore {
   create(input, receiptKey) {
     return this.transaction(() => {
       if (receiptKey && this.receipt(receiptKey)) return this.get(this.receipt(receiptKey).taskId, input.teamId);
-      input = { ...input, ...validateTask(input) };
+      input = { ...input, ...validateTask(input), ...validateDetails(input.details??'',input.images??[]) };
       const now = new Date().toISOString();
-      const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,dueTime,requiresReview,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.dueTime ?? null, 0, now, now);
+      const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,dueTime,details,images,requiresReview,createdAt,updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.dueTime ?? null, input.details, JSON.stringify(input.images), 0, now, now);
       const id = Number(result.lastInsertRowid);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, input.creatorId, 'created', now);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
@@ -231,7 +247,8 @@ export class TaskStore {
       const now = new Date().toISOString();
       if (action === 'edit' && !task.deletedAt) {
         const data = validateTask(changes);
-        this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,now,id);
+        const extra=validateDetails(changes.details??task.details,changes.images??taskImages(task));
+        this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,details=?,images=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,extra.details,JSON.stringify(extra.images),now,id);
       } else if (action === 'delete' && !task.deletedAt) {
         this.db.prepare('UPDATE tasks SET deletedAt=?,version=version+1,updatedAt=? WHERE id=?').run(now,now,id);
         this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);

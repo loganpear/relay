@@ -27,7 +27,7 @@ Open **Relay → Home**. Your two task tables are already there:
 
 Both tables show task directions, the teammate, due date, and status. Click **To do** or **Done** in a row to change its status. Only the assignee can change a task’s status, including reopening it. Status in Assigned by you is read-only. Completing work mentions the assigner in the task’s channel thread.
 
-The assigner can click the **task directions** to edit the directions, assignee, or due date, click the **Due** cell in **Assigned by you** to set or change the date and time, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
+Click a **task name** to open its details and requirements (plus attached images when uploads are enabled). The assigner can choose **Edit** there to update the task; the assignee has read-only access to the details. The assigner can also click the **Due** cell in **Assigned by you** to set or change the date and time, or click **Delete** directly in the row. Delete asks for confirmation and offers **Undo delete** afterward, without a separate Trash screen.
 
 Each table starts with five tasks, newest first. **Show more** expands that list to 20 rows, with **Previous / Next** for older work; **Show fewer** returns to five. Self-assigned tasks appear in both tables. **Assigned to you** has no Delete column; delete from **Assigned by you**. The tables are private to you and cover the channel enabled for Relay.
 
@@ -76,7 +76,7 @@ Use a two-digit month and day, followed by a 12-hour time and AM or PM.
 
 ## Access and privacy
 
-Relay requests permission to receive its commands and post its task cards. It does not request permission to read channel history or your workspace's user directory.
+Relay requests permission to receive its commands, post its task cards, and read files available to the app for task image attachments. It does not request permission to read channel history or your workspace's user directory.
 
 Only the assignee can complete or reopen a task. The assigner can edit, delete, and restore it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
 

@@ -1,8 +1,30 @@
-import { TaskError, validateTask, dueTimezone, dueTimezoneLabel } from './tasks.js';
-import { homeRequest, homeState, viewState, section, publishTaskHome } from './home.js';
+import { TaskError, validateTask, dueTimezone, dueTimezoneLabel, taskImages, validateDetails, formatDue } from './tasks.js';
+import { homeRequest, homeState, viewState, section, button, publishTaskHome } from './home.js';
 
 const plain = text => ({type:'plain_text',text});
 const input = (block_id,label,element,optional=false)=>({type:'input',block_id,label:plain(label),element,...(optional?{optional:true}:{})});
+const uploadsEnabled = () => process.env.SLACK_IMAGE_UPLOADS === 'true';
+const imageBlocks = task => taskImages(task).map((id,index)=>({type:'image',slack_file:{id},alt_text:`Task image ${index+1}`}));
+export function taskDetails(task,actorId,state={}) {
+  const blocks=[section(task.title),{type:'section',fields:[
+    {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
+    {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
+    {type:'plain_text',text:`Status: ${task.status==='done'?'✅ Done':'🔲 To do'}`},
+    {type:'plain_text',text:`Due: ${formatDue(task)} (${dueTimezoneLabel})`}
+  ]},{type:'divider'}];
+  const details=task.details||'No additional details yet.';
+  for(let i=0;i<details.length;i+=3000)blocks.push(section(details.slice(i,i+3000)));
+  blocks.push(...imageBlocks(task));
+  if(actorId===task.creatorId)blocks.push({type:'actions',elements:[button('ui_edit_details','Edit',{id:task.id,version:task.version})]});
+  return {type:'modal',callback_id:'relay_task_details',title:plain('Task details'),close:plain('Close'),private_metadata:JSON.stringify({state:homeState(state)}),blocks};
+}
+function attachmentInputs(task) {
+  const images=taskImages(task);
+  return [input('details','Details',{type:'plain_text_input',action_id:'value',multiline:true,max_length:3000,placeholder:plain('Requirements, notes, or steps to complete this task'),...(task?.details?{initial_value:task.details}:{})},true),
+    ...(images.length?[input('keep_images','Attached images',{type:'checkboxes',action_id:'value',options:images.map((id,i)=>({text:plain(`Keep image ${i+1}`),value:id})),initial_options:images.map((id,i)=>({text:plain(`Keep image ${i+1}`),value:id}))},true),...imageBlocks(task)]:[]),
+    ...(uploadsEnabled()&&images.length<5?[input('images','Add images',{type:'file_input',action_id:'value',filetypes:['png','jpg','jpeg','gif'],max_files:5-images.length},true)]:[])
+  ];
+}
 function modal(operation, state, task) {
   const meta={operation,state,...(task?{taskId:task.id,version:task.version}:{})};
   const base={type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),title:plain(operation==='create'?'New task':operation==='edit'?'Edit task':operation==='due'?'Edit due date':'Delete task'),close:plain('Cancel')};
@@ -12,6 +34,7 @@ function modal(operation, state, task) {
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})})]),
     input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(task?.dueDate?{initial_date:task.dueDate}:{})},true),
     input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:dueTimezone,placeholder:plain('Choose a time'),...(task?.dueTime?{initial_time:task.dueTime}:{})},true),
+    ...(operation!=='due'?attachmentInputs(task):[]),
     {type:'context',elements:[plain('Times use '+dueTimezoneLabel+'. Tasks are posted only in the channel configured for Relay. The assignee marks work done; the assigner gets a completion mention.')]}
   ]};
 }
@@ -25,16 +48,26 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     try{meta=JSON.parse(payload.view.private_metadata||'{}');}catch{return {ackPayload:failedModal('Invalid form.')}}
     const state=homeState(meta.state);
     const home={userId:actorId,...state};
-    const key=`modal:${payload.view.id}`;
+    const key=`modal:${payload.view.id}:${meta.operation}:${meta.version??"new"}`;
     try{
       if(!payload.view.id)throw new TaskError('This form has no identity.');
       if(['create','edit','due'].includes(meta.operation)){
         const values=payload.view.state?.values??{};
         const task=meta.operation==='due'?store.get(meta.taskId,teamId):null;
         const changes=validateTask({title:meta.operation==='due'?task?.title:values.title?.value?.value,assigneeId:meta.operation==='due'?task?.assigneeId:values.assignee?.value?.selected_user,dueDate:values.due_date?.value?.selected_date,dueTime:values.due_time?.value?.selected_time});
+        if(['create','edit'].includes(meta.operation)&&values.details) {
+          const current=meta.operation==='edit'?store.get(meta.taskId,teamId):null,existing=taskImages(current||{});
+          const kept=(values.keep_images?.value?.selected_options??[]).map(option=>option.value);
+          if(kept.some(id=>!existing.includes(id)))throw new TaskError('Refresh this task before editing images.');
+          const files=values.images?.value?.files??[];
+          if(files.length&&!uploadsEnabled())throw new TaskError('Image uploads are not enabled.');
+          if(files.some(file=>!['image/png','image/jpeg','image/gif'].includes(file.mimetype)))throw new TaskError('Attach PNG, JPG, or GIF images only.');
+          Object.assign(changes,validateDetails(values.details.value?.value||'', [...kept,...files.map(file=>file.id)]));
+        }
         if(meta.operation==='create')store.create({...changes,teamId,channelId:allowedChannelId,creatorId:actorId},key);
         else store.manage({...context,id:meta.taskId,version:meta.version,action:'edit',changes,receiptKey:key});
-        return {ackPayload:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
+        const saved=meta.operation==='edit'?store.get(meta.taskId,teamId):null;
+        return {ackPayload:meta.returnToDetails&&saved?{response_action:'update',view:taskDetails(saved,actorId,state)}:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
       }
       if(meta.operation==='delete'){
         const deleted=store.manage({...context,id:meta.taskId,version:meta.version,action:'delete',receiptKey:key});
@@ -44,13 +77,23 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     }catch(error){
       const message=error instanceof TaskError?error.message:'Unable to save this task.';
       if(['create','edit','due'].includes(meta.operation)){
-        const field=/date/i.test(message)?'due_date':/time|HH:MM/i.test(message)?'due_time':/teammate/i.test(message)?'assignee':'title';
+        const field=/^Keep task details/i.test(message)&&meta.operation!=='due'?'details':/images|PNG|JPG|GIF/i.test(message)?'images':/date/i.test(message)?'due_date':/time|HH:MM/i.test(message)?'due_time':/teammate/i.test(message)?'assignee':'title';
         return {ackPayload:{response_action:'errors',errors:{[meta.operation==='due'&& !['due_date','due_time'].includes(field)?'due_date':field]:message}}};
       }
       return {ackPayload:failedModal(message)};
     }
   }
-  if(payload.type!=='block_actions'||payload.view?.type!=='home'||payload.actions?.length!==1)return null;
+  if(payload.type!=='block_actions'||!['home','modal'].includes(payload.view?.type)||payload.actions?.length!==1)return null;
+  if(payload.view.type==='modal') {
+    if(payload.view.callback_id!=='relay_task_details'||payload.actions[0].action_id!=='ui_edit_details')return null;
+    try {
+      const row=JSON.parse(payload.actions[0].value),task=store.get(row.id,teamId);
+      if(!task||task.channelId!==allowedChannelId||task.creatorId!==actorId||task.deletedAt||task.version!==row.version)throw new TaskError('This task changed. Close and reopen it before editing.');
+      const state=homeState(JSON.parse(payload.view.private_metadata||'{}').state);
+      const view=modal('edit',state,task),meta=JSON.parse(view.private_metadata);meta.returnToDetails=true;view.private_metadata=JSON.stringify(meta);
+      return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view}};
+    } catch {return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view:failedModal('This task changed.').view}};}
+  }
   const action=payload.actions[0];
   if(!action.action_id?.startsWith('ui_')){
     const home=homeRequest(teamId,allowedChannelId,payload);
@@ -66,6 +109,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
     const task=store.get(row.id,teamId);
     if(!task||task.channelId!==allowedChannelId||![task.creatorId,task.assigneeId].includes(actorId))throw new TaskError('Choose one of your tasks first.');
     if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
+    if(name==='ui_details'&&!task.deletedAt)return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state)}};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
     if(name==='ui_status'){
       if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
@@ -85,6 +129,9 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
   }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }
 export async function runAppUiEffects(client,store,config,result){
+  if(result?.updateModal){
+    try{await client.call('views.update',result.updateModal);}catch(error){console.error('Relay could not update a task form:',error.message);return;}
+  }
   if(result?.openModal){
     try{await client.call('views.open',result.openModal);}catch(error){
       console.error('Relay could not open a task form:',error.message);
