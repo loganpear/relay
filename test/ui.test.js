@@ -54,7 +54,7 @@ test('Old delete controls archive safely and the UI only offers archive terminol
  const result=handleAppUi(store,config,submit(JSON.parse(opened.openModal.view.private_metadata)));
  task=store.get(task.id,'TTEST');assert.equal(task.deletedAt,null);assert.ok(task.archivedAt);assert.equal(store.history(task.id).at(-1).action,'archive');
  const home=taskHome(store,{teamId:'TTEST',channelId:'CTEST',...result.home,period:'past'});
- assert.equal(home.blocks.find(b=>b.type==='data_table').rows[1][4].element.text.text,'▾ Archived');assert.doesNotMatch(JSON.stringify(home),/Delete task|Deleted|Undo delete|Restore/);
+ assert.equal(home.blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1][4].element.text.text,'▾ Archived');assert.doesNotMatch(JSON.stringify(home),/Delete task|Deleted|Undo delete|Restore/);
  assert.equal(taskMessage(task).blocks.some(b=>b.type==='actions'),false);
  handleAppUi(store,config,action('ui_restore',select(task)),'legacy-restore');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(store.history(task.id).at(-1).action,'unarchive');store.close();
 });
@@ -115,7 +115,7 @@ test('Assigned-by-you status is read-only and stale creator buttons cannot reope
  const store=new TaskStore();let task=store.create(base);
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
  const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
- const row=owner.blocks.find(b=>b.type==='data_table').rows[1];
+ const row=owner.blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1];
  assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
  assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_choose_archive');
  const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
@@ -138,7 +138,7 @@ test('Task forms set and clear due times and show missing-date errors inline',()
 
 test('Due cells let only the assigner change or clear deadlines without changing task details',()=>{
  const store=new TaskStore();let task=store.create(base);
- const row=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'}).blocks.find(b=>b.type==='data_table').rows[1];
+ const row=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'}).blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1];
  assert.equal(row[2].element.text.text,'Set due date');assert.equal(row[2].element.action_id,'ui_due:assigned:'+task.id);
  assert.equal(handleAppUi(store,config,action('ui_due',select(task),'UOTHER')).openModal,undefined);
  const opened=handleAppUi(store,config,action('ui_due',select(task))).openModal.view;
@@ -261,7 +261,7 @@ test('Past deadlines are read-only through cells, old date forms, and task-detai
  const store=new TaskStore();let task=store.create({...base,dueDate:'2026-11-06',dueTime:'17:30'});
  task=store.manage({...base,id:task.id,actorId:'UME',version:task.version,action:'archive'});
  const state={...select(task),period:'past'};
- const table=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',period:'past'}).blocks.find(b=>b.type==='data_table');
+ const table=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',period:'past'}).blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you'));
  assert.deepEqual(table.rows[1][2],{type:'raw_text',text:'11/06 5:30 PM'});
  assert.match(handleAppUi(store,config,action('ui_due:assigned:'+task.id,state)).home.notice,/Current/);
  const meta={operation:'due',taskId:task.id,version:task.version,state};

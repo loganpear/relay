@@ -49,10 +49,10 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     const data = store.personalPage({teamId,channelId,userId,direction:mode,period:state.period,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
     state[`${mode}Page`] = data.page;
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
-    if (!data.tasks.length) blocks.push({type:'header',text:{type:'plain_text',text:`${title} · 0`}},section(state.period==='past'?'No past tasks yet.':mode==='mine'?"You’re all caught up.":'No current tasks assigned by you.'));
+    const showManagement = mode === 'assigned';
+    const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Archive']:[]),...(state.period==='past'?['Created at']:[])];
+    if (!data.tasks.length) blocks.push({type:'data_table',caption:`${title} · 0`,page_size:5,rows:[headers.map(text),headers.map((_,index)=>text(index===Math.floor((headers.length-1)/2)?'No records':'\u00a0'))]});
     else {
-      const showManagement = mode === 'assigned';
-      const headers = ['Task',mode==='mine'?'From':'To','Due','Status',...(showManagement?['Archive']:[]),...(state.period==='past'?['Created at']:[])];
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = state.period === 'current' && mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});

@@ -77,7 +77,7 @@ test('Archiving To do stops work for both people without completion and can be r
  assert.throws(()=>store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'complete'}),/archived/);
  const card=taskMessage(task);assert.equal(card.blocks.some(b=>b.type==='actions'),false);assert.match(card.text,/To do · Archived/);assert.equal(card.blocks[2].fields[0].text,'*Status*\nTo do');assert.equal(card.blocks[2].fields[1].text,'*Archived*\nArchived');
  const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'🔲 To do');assert.equal(mine.rows[1][3].element,undefined);
- const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(assigned.rows[1][4].element.text.text,'▾ Archived');assert.equal(assigned.rows[0].at(-1).text,'Created at');assert.equal(assigned.rows[1].at(-1).type,'raw_number');
+ const assigned=taskHome(store,{...base,userId:base.creatorId,period:'past'}).blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you'));assert.equal(assigned.rows[1][4].element.text.text,'▾ Archived');assert.equal(assigned.rows[0].at(-1).text,'Created at');assert.equal(assigned.rows[1].at(-1).type,'raw_number');
  task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});
  assert.equal(task.status,'todo');assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
  assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','current').total,1);
