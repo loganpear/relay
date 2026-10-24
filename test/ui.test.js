@@ -47,21 +47,16 @@ test('Assignees cannot edit or delete; neither role can cross a workspace or cha
  assert.throws(()=>store.manage({id:task.id,teamId:'TTEST',channelId:'CTEST',actorId:'UOTHER',version:0,action:'delete'}));
  store.close();
 });
-test('Delete confirms, hides the task, and offers Undo without a Trash view',()=>{
- const store=new TaskStore();const task=store.create(base);
+test('Old delete controls archive safely and the UI only offers archive terminology',()=>{
+ const store=new TaskStore();let task=store.create(base);
  const opened=handleAppUi(store,config,action('ui_delete',select(task)));
- assert.equal(opened.openModal.view.submit.text,'Delete task');
- assert.equal(store.get(task.id,'TTEST').deletedAt,null);
+ assert.equal(opened.openModal.view.submit.text,'Archive task');assert.doesNotMatch(JSON.stringify(opened.openModal.view),/Delete task|Deleted|Undo delete/);
  const result=handleAppUi(store,config,submit(JSON.parse(opened.openModal.view.private_metadata)));
- const home=taskHome(store,{teamId:'TTEST',channelId:'CTEST',...result.home});
- assert.equal(home.blocks.find(b=>b.accessory?.action_id==='ui_restore').accessory.text.text,'Undo delete');
- const deleted=store.get(task.id,'TTEST');assert.ok(deleted.deletedAt);
- assert.equal(store.list({teamId:'TTEST',channelId:'CTEST'}).length,0);
- assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UME',direction:'trash'}).total,1);
- assert.equal(store.personalPage({teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',direction:'trash'}).total,0);
- assert.equal(taskMessage(deleted).blocks.some(b=>b.type==='actions'),false);
- handleAppUi(store,config,action('ui_restore',{...select(deleted),mode:'trash'}),'restore');
- assert.equal(store.get(task.id,'TTEST').deletedAt,null);assert.equal(store.history(task.id).at(-1).action,'restore');store.close();
+ task=store.get(task.id,'TTEST');assert.equal(task.deletedAt,null);assert.ok(task.archivedAt);assert.equal(store.history(task.id).at(-1).action,'archive');
+ const home=taskHome(store,{teamId:'TTEST',channelId:'CTEST',...result.home,period:'past'});
+ assert.equal(home.blocks.find(b=>b.type==='data_table').rows[1][4].element.text.text,'Move to Current');assert.doesNotMatch(JSON.stringify(home),/Delete task|Deleted|Undo delete|Restore/);
+ assert.equal(taskMessage(task).blocks.some(b=>b.type==='actions'),false);
+ handleAppUi(store,config,action('ui_restore',select(task)),'legacy-restore');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(store.history(task.id).at(-1).action,'unarchive');store.close();
 });
 test('Mark done and Reopen enforce roles and support completing a task again',()=>{
  const store=new TaskStore();let task=store.create(base);

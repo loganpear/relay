@@ -10,8 +10,6 @@ export function homeState(value = {}) {
     state[`${mode}Expanded`] = value[`${mode}Expanded`] === true;
     state[`${mode}Page`] = state[`${mode}Expanded`] && Number.isSafeInteger(value[`${mode}Page`]) ? Math.max(0,value[`${mode}Page`]) : 0;
   }
-  state.undoId = Number.isSafeInteger(value.undoId) ? value.undoId : null;
-  state.undoVersion = Number.isSafeInteger(value.undoVersion) ? value.undoVersion : null;
   return state;
 }
 export function viewState(payload) {
@@ -54,8 +52,8 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
         const canToggle = mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
         const due = formatDue(task,{markOverdue:true});
         return [cellAction('ui_details',task.title.length>75?task.title.slice(0,72)+'…':task.title,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
-          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.deletedAt?'Deleted':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'),
-          ...(showManagement ? [task.deletedAt?cellAction('ui_restore','Restore',mode,task):cellAction(state.period==='past'?'ui_unarchive':'ui_archive',state.period==='past'?'Move to Current':'Archive',mode,task)] : [])];
+          canToggle ? cellAction(task.status==='todo'?'ui_complete':'ui_reopen',task.status==='todo'?'🔲 To do':'✅ Done',mode,task) : text(task.deletedAt?'Archived':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'),
+          ...(showManagement ? [cellAction(state.period==='past'?'ui_unarchive':'ui_archive',state.period==='past'?'Move to Current':'Archive',mode,task)] : [])];
       })]});
       const navigation=[];
       if (expanded) {
@@ -68,10 +66,7 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     }
     blocks.push({type:'divider'});
   }
-  const deleted = state.undoId ? store.get(state.undoId,teamId) : null;
-  if(deleted?.channelId===channelId && deleted.creatorId===userId && deleted.deletedAt && deleted.version===state.undoVersion) {
-    blocks.push({type:'section',text:{type:'plain_text',text:'Task deleted.'},accessory:button('ui_restore','Undo delete',{id:deleted.id,version:deleted.version})});
-  } else { state.undoId=null; state.undoVersion=null; if(notice&&!completionTitle)blocks.push(section(notice)); }
+  if(notice&&!completionTitle)blocks.push(section(notice));
   blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or a status to toggle it. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};

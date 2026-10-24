@@ -25,13 +25,13 @@ Open **Relay → Home**. **Current** shows two tables:
 - **Assigned to you** — unfinished work assigned to you. Marking it Done moves it to your Past list immediately. A confirmation at the top names the task and includes **View Past** so you can find it again.
 - **Assigned by you** — work you created. Completed tasks stay here for seven days after completion so you can see the result; click **Archive** to move them to your Past list sooner.
 
-Switch to **Past** to find completed, archived, and deleted work. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.
+Switch to **Past** to find completed and archived work. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.
 
 Only assignees can toggle **🔲 To do / ✅ Done**, including reopening work from Past. Reopening brings the task back to both Current lists and clears its archive state. Completing work mentions the assigner in the task’s channel thread. Archiving **Done** only affects the assigner’s list. Archiving **To do** stops the work for both people: it moves to both Past lists marked **Archived**, and cannot be completed until the assigner chooses **Move to Current**. Archiving sends no completion notification. **Move to Current** reactivates an archived To do task for both people; for completed tasks it gives the assigner another seven days in Current without changing status.
 
 Click a **task name** for requirements and notes (plus attached images when uploads are enabled). Details opened from **Assigned to you** are read-only, including self-assigned tasks. The assigner can open it under **Assigned by you** and choose **Edit**. The **Due** cell there also opens the deadline editor.
 
-For mistakes or canceled work, **Delete task** is inside the assigner’s task-details window and asks for confirmation. Deleted tasks appear in both Past lists marked **Deleted**, with **Restore** available only to the assigner. They retain their details and history; nothing is permanently erased.
+For mistakes or canceled work, use **Archive**. Task details and history stay available in Past; the assigner can choose **Move to Current** to reactivate work. There is no separate Delete or Trash flow.
 
 **＋ New task** and **Refresh** stay at the bottom. Self-assigned tasks follow each table’s role: after completion they are Past under Assigned to you and remain Current under Assigned by you for up to seven days.
 
@@ -88,7 +88,7 @@ Both flags are optional and can appear in either order. Put details in double qu
 
 Relay requests permission to receive its commands, post its task cards, and read files available to the app for task image attachments. It does not request permission to read channel history or your workspace's user directory.
 
-Only the assignee can complete or reopen a task. The assigner can edit, delete, and restore it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
+Only the assignee can complete or reopen a task. The assigner can edit, archive, and reactivate it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
 
 ## Building on Relay
 

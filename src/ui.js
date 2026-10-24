@@ -9,13 +9,13 @@ export function taskDetails(task,actorId,state={},source='assigned') {
   const blocks=[section(task.title),{type:'section',fields:[
     {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
     {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
-    {type:'plain_text',text:`Status: ${task.deletedAt?'Deleted':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'}`},
+    {type:'plain_text',text:`Status: ${task.deletedAt?'Archived':task.status==='todo'&&task.archivedAt?'Archived':task.status==='done'?'✅ Done':'🔲 To do'}`},
     {type:'plain_text',text:`Due: ${formatDue(task)} (${dueTimezoneLabel})`}
   ]},{type:'divider'}];
   const details=task.details||'No additional details yet.';
   for(let i=0;i<details.length;i+=3000)blocks.push(section(details.slice(i,i+3000)));
   blocks.push(...imageBlocks(task));
-  if(source==='assigned'&&actorId===task.creatorId&&!task.deletedAt)blocks.push({type:'actions',elements:[button('ui_edit_details','Edit',{id:task.id,version:task.version}),button('ui_delete_details','Delete task',{id:task.id,version:task.version})]});
+  if(source==='assigned'&&actorId===task.creatorId&&!task.deletedAt)blocks.push({type:'actions',elements:[button('ui_edit_details','Edit',{id:task.id,version:task.version})]});
   return {type:'modal',callback_id:'relay_task_details',title:plain('Task details'),close:plain('Close'),private_metadata:JSON.stringify({state:homeState(state),source}),blocks};
 }
 function attachmentInputs(task) {
@@ -27,8 +27,8 @@ function attachmentInputs(task) {
 }
 function modal(operation, state, task) {
   const meta={operation,state,...(task?{taskId:task.id,version:task.version}:{})};
-  const base={type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),title:plain(operation==='create'?'New task':operation==='edit'?'Edit task':operation==='due'?'Edit due date':'Delete task'),close:plain('Cancel')};
-  if(operation==='delete')return {...base,submit:plain('Delete task'),blocks:[section(`Delete “${task.title}”? It will move to Past for both people, marked Deleted. You can restore it from Past.`)]};
+  const base={type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),title:plain(operation==='create'?'New task':operation==='edit'?'Edit task':operation==='due'?'Edit due date':'Archive task'),close:plain('Cancel')};
+  if(['archive','delete'].includes(operation))return {...base,submit:plain('Archive task'),blocks:[section(`Archive “${task.title}”? ${task.status==='todo'?'Work will no longer be required, and the task will move to Past for both people.':'It will move to your Past list.'} You can move it to Current again later.`)]};
   return {...base,submit:plain(operation==='create'?'Create task':'Save changes'),blocks:[
     ...(operation==='due'?[section(task.title)]:[input('title','Task',{type:'plain_text_input',action_id:'value',max_length:240,...(task?{initial_value:task.title}:{})}),
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})})]),
@@ -69,9 +69,9 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
         const saved=meta.operation==='edit'?store.get(meta.taskId,teamId):null;
         return {ackPayload:meta.returnToDetails&&saved?{response_action:'update',view:taskDetails(saved,actorId,state)}:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
       }
-      if(meta.operation==='delete'){
-        const deleted=store.manage({...context,id:meta.taskId,version:meta.version,action:'delete',receiptKey:key});
-        return {ackPayload:{},home:{...home,undoId:deleted.id,undoVersion:deleted.version}};
+      if(['archive','delete'].includes(meta.operation)){
+        store.manage({...context,id:meta.taskId,version:meta.version,action:'archive',receiptKey:key});
+        return {ackPayload:{},home:{...home,notice:'Task archived. You can find it in Past.'}};
       }
       throw new TaskError('Unknown form.');
     }catch(error){
@@ -92,7 +92,7 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       const row=JSON.parse(payload.actions[0].value),task=store.get(row.id,teamId);
       if(!task||task.channelId!==allowedChannelId||task.creatorId!==actorId||task.deletedAt||task.version!==row.version)throw new TaskError('This task changed. Close and reopen it before editing.');
       const state=homeState(JSON.parse(payload.view.private_metadata||'{}').state);
-      const operation=payload.actions[0].action_id==='ui_delete_details'?'delete':'edit';
+      const operation=payload.actions[0].action_id==='ui_delete_details'?'archive':'edit';
       const view=modal(operation,state,task),meta=JSON.parse(view.private_metadata);meta.returnToDetails=true;view.private_metadata=JSON.stringify(meta);
       return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view}};
     } catch {return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view:failedModal('This task changed.').view}};}
@@ -121,15 +121,15 @@ export function handleAppUi(store,{teamId,allowedChannelId},payload,receiptKey){
       return {ackPayload:{},home:{...home,...(row.status==='done'?{completionTitle:task.title}:{}),notice:row.status==='done'?'Task marked done and moved to Past.':'Task reopened.'}};
     }
     if(['ui_edit','ui_due','ui_delete'].includes(name)){
-      if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or delete an active task.');
-      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'delete',state,task)}};
+      if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or archive a task.');
+      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'archive',state,task)}};
     }
     if(['ui_archive','ui_unarchive'].includes(name))store.manage({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
-    else if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'restore',receiptKey});
+    else if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'unarchive',receiptKey});
     else if(['ui_complete','ui_reopen'].includes(name))store.transition({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else throw new TaskError('Unknown task action.');
-    const notice=name==='ui_archive'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):name==='ui_unarchive'?(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.'):name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task restored.';
-    return {ackPayload:{},home:{...home,...(name==='ui_restore'?{undoId:null,undoVersion:null}:{}),...(name==='ui_complete'?{completionTitle:task.title}:{}),notice}};
+    const notice=name==='ui_archive'?(task.status==='todo'?'Task archived for both people. Work is no longer required.':'Task moved to Past for you.'):name==='ui_unarchive'?(task.status==='todo'?'Task reactivated in Current for both people.':'Task moved to Current for you for seven days.'):name==='ui_complete'?'Task marked done. Its assigner will receive a completion mention.':name==='ui_reopen'?'Task reopened.':'Task moved to Current.';
+    return {ackPayload:{},home:{...home,...(name==='ui_complete'?{completionTitle:task.title}:{}),notice}};
   }catch(error){return {ackPayload:{},home:{...home,notice:error instanceof TaskError?error.message:'Unable to update the task. Try again.'}};}
 }
 export async function runAppUiEffects(client,store,config,result){

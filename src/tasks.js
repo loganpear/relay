@@ -176,6 +176,14 @@ export class TaskStore {
       this.db.exec("UPDATE tasks SET completedAt=coalesce((SELECT max(createdAt) FROM history WHERE taskId=tasks.id AND action='complete'),updatedAt) WHERE status='done' AND completedAt IS NULL");
       this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('task-lifecycle');
     });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('archive-only'))return;
+      const legacy=this.db.prepare('SELECT id FROM tasks WHERE deletedAt IS NOT NULL').all();
+      this.db.exec("DELETE FROM completion_notifications WHERE sentTs IS NULL AND taskId IN (SELECT id FROM tasks WHERE deletedAt IS NOT NULL)");
+      this.db.exec("UPDATE tasks SET archivedAt=coalesce(archivedAt,deletedAt),deletedAt=NULL,creatorCurrentUntil=NULL,version=version+1 WHERE deletedAt IS NOT NULL");
+      for(const task of legacy)this.enqueue(task.id);
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('archive-only');
+    });
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -208,7 +216,7 @@ export class TaskStore {
       if (!task || task.channelId !== channelId) throw new TaskError('That task is not available in this channel.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
-      if (task.deletedAt) throw new TaskError('This task was deleted. Its assigner can restore it from Past.');
+      if (task.deletedAt) throw new TaskError('This task is archived. Its assigner can move it to Current from Past.');
       if(task.status==='todo'&&task.archivedAt)throw new TaskError('This task was archived. Its assigner can move it to Current before work resumes.');
       const canComplete = action === 'complete' && task.status === 'todo' && actorId === task.assigneeId;
       const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.assigneeId;
@@ -272,9 +280,10 @@ export class TaskStore {
     this.db.prepare('UPDATE completion_notifications SET attempts=attempts+1,error=?,nextAttempt=? + min(300000,1000 * (1 << min(attempts,8))) WHERE id=?').run(error, Date.now() + retryAfter, id);
   }
   manage({ id, teamId, channelId, actorId, version, action, changes, receiptKey }) {
+    action=action==='delete'?'archive':action==='restore'?'unarchive':action;
     return this.transaction(() => {
       const task = this.get(id, teamId);
-      if (!task || task.channelId !== channelId || task.creatorId !== actorId) throw new TaskError('Only the assigner can edit, delete, or restore this task.');
+      if (!task || task.channelId !== channelId || task.creatorId !== actorId) throw new TaskError('Only the assigner can edit, archive, or reactivate this task.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (!Number.isSafeInteger(version) || version !== task.version) throw new TaskError('This task changed. Refresh the task list and try again.');
       const now = new Date().toISOString();
@@ -282,13 +291,8 @@ export class TaskStore {
         const data = validateTask(changes);
         const extra=validateDetails(changes.details??task.details,changes.images??taskImages(task));
         this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,details=?,images=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,extra.details,JSON.stringify(extra.images),now,id);
-      } else if (['archive','unarchive'].includes(action) && !task.deletedAt ) {
-        this.db.prepare('UPDATE tasks SET archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'&&task.status==='done'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
-      } else if (action === 'delete' && !task.deletedAt) {
-        this.db.prepare('UPDATE tasks SET deletedAt=?,version=version+1,updatedAt=? WHERE id=?').run(now,now,id);
-        this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);
-      } else if (action === 'restore' && task.deletedAt) {
-        this.db.prepare('UPDATE tasks SET deletedAt=NULL,version=version+1,updatedAt=? WHERE id=?').run(now,id);
+      } else if (['archive','unarchive'].includes(action)) {
+        this.db.prepare('UPDATE tasks SET deletedAt=NULL,archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'&&task.status==='done'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
       } else throw new TaskError('This action is unavailable for the task’s current state.');
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id,actorId,action,now);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey,id);

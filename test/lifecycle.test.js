@@ -35,14 +35,14 @@ test('Archive is creator-only, changes only their list, and reopening resets lif
  assert.equal(task.completedAt,null);assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
  assert.equal(page(store,base.creatorId,'assigned','current').total,1);assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','past').total,0);store.close();
 });
-test('Deleted work appears in both Past lists, only the creator can restore, and details remain readable',()=>{
+test('Archived work stays readable in Past and only the creator can reactivate it',()=>{
  const store=new TaskStore();let task=store.create({...base,details:'Keep these requirements'});
- task=store.manage({...context,id:task.id,version:task.version,action:'delete'});
+ task=store.manage({...context,id:task.id,version:task.version,action:'archive'});
  for(const [user,direction] of [[base.creatorId,'assigned'],[base.assigneeId,'mine']]){assert.equal(page(store,user,direction,'current').total,0);assert.equal(page(store,user,direction,'past').total,1);}
- const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Deleted');assert.equal(mine.rows[1].length,4);
+ const mine=taskHome(store,{...base,userId:base.assigneeId,period:'past'}).blocks.find(b=>b.type==='data_table');assert.equal(mine.rows[1][3].text,'Archived');assert.equal(mine.rows[1].length,4);
  const view=handleAppUi(store,config,action(task,'ui_details:mine:'+task.id,base.assigneeId,{period:'past'})).openModal.view;assert.match(JSON.stringify(view),/Keep these requirements/);assert.equal(view.blocks.some(b=>b.type==='actions'),false);
- assert.match(handleAppUi(store,config,action(task,'ui_restore',base.assigneeId,{period:'past'})).home.notice,/assigner/);
- handleAppUi(store,config,action(task,'ui_restore',base.creatorId,{period:'past'}));assert.equal(store.get(task.id,base.teamId).deletedAt,null);assert.equal(page(store,base.assigneeId,'mine','current').total,1);store.close();
+ assert.match(handleAppUi(store,config,action(task,'ui_unarchive',base.assigneeId,{period:'past'})).home.notice,/assigner/);
+ handleAppUi(store,config,action(task,'ui_unarchive',base.creatorId,{period:'past'}));assert.equal(store.get(task.id,base.teamId).deletedAt,null);assert.equal(page(store,base.assigneeId,'mine','current').total,1);store.close();
 });
 test('View switching resets pages, Past orders recent activity, and pagination bounds apply',()=>{
  const store=new TaskStore();for(let i=0;i<26;i++){const t=store.create({...base,title:'Task '+i});store.transition({...context,id:t.id,actorId:base.assigneeId,action:'complete'});}
@@ -92,4 +92,18 @@ test('Completing from Current shows a named success message above the tables and
  assert.equal(view.blocks[1].accessory.text.text,'View Past');assert.equal(view.blocks[1].accessory.action_id,'home_view_past');
  const past=homeRequest(base.teamId,base.channelId,action(task,'home_view_past',base.assigneeId));assert.equal(past.period,'past');
  const pastView=taskHome(store,{...base,...past});assert.equal(pastView.blocks.find(b=>b.type==='data_table').rows[1][0].element.text.text,task.title);assert.equal(pastView.blocks.some(b=>b.accessory?.action_id==='home_view_past'),false);store.close();
+});
+
+test('Old soft-deleted records migrate to archives without losing history or sending old notifications',async()=>{
+ const {mkdtempSync,rmSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path');const {taskMessage}=await import('../src/slack.js');
+ const dir=mkdtempSync(join(tmpdir(),'relay-archive-only-')),path=join(dir,'tasks.sqlite');let store=new TaskStore(path);
+ try{
+  const open=store.create({...base,details:'Original requirements'});let done=store.create({...base,title:'Old completed task'});done=store.transition({...context,id:done.id,actorId:base.assigneeId,action:'complete'});
+  for(const task of [open,done]){store.db.prepare('UPDATE tasks SET deletedAt=? WHERE id=?').run('2026-10-01T10:00:00.000Z',task.id);store.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(task.id,base.creatorId,'delete','2026-10-01T10:00:00.000Z');}
+  store.db.exec("DELETE FROM outbox; DELETE FROM schema_migrations WHERE name='archive-only'");store.close();store=new TaskStore(path);
+  const migrated=store.get(open.id,base.teamId);assert.equal(migrated.deletedAt,null);assert.equal(migrated.archivedAt,'2026-10-01T10:00:00.000Z');assert.equal(migrated.details,'Original requirements');assert.equal(store.history(open.id).at(-1).action,'delete');
+  assert.equal(store.get(done.id,base.teamId).status,'done');assert.equal(store.pending().length,2);assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications WHERE sentTs IS NULL').get().n,0);
+  const view=taskHome(store,{...base,userId:base.creatorId,period:'past'});assert.doesNotMatch(JSON.stringify(view),/Deleted|Delete task|Restore|Undo delete/);assert.doesNotMatch(JSON.stringify(taskMessage(migrated)),/Deleted/);
+  store.manage({...context,id:migrated.id,version:migrated.version,action:'unarchive'});assert.equal(page(store,base.assigneeId,'mine','current').total,1);
+ }finally{store.close();rmSync(dir,{recursive:true});}
 });
