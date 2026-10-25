@@ -190,6 +190,42 @@ export class TaskStore {
       for(const task of legacy)this.enqueue(task.id);
       this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('archive-only');
     });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('card-no-reopen'))return;
+      // Refresh posted Done cards so they drop the retired Reopen button.
+      for(const task of this.db.prepare("SELECT id FROM tasks WHERE status='done' AND messageTs IS NOT NULL").all())this.enqueue(task.id);
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('card-no-reopen');
+    });
+    this.transaction(() => {
+      if(this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('send-back-mentions'))return;
+      if(!this.db.prepare('PRAGMA table_info(completion_notifications)').all().some(c=>c.name==='kind'))this.db.exec("ALTER TABLE completion_notifications ADD COLUMN kind TEXT NOT NULL DEFAULT 'complete'");
+      this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('send-back-mentions');
+    });
+    if(!this.db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get('cardless-tasks')) {
+      // Tasks made in Relay Home have no channel, so channelId must allow NULL. Swapping the table needs foreign keys off.
+      this.db.exec('PRAGMA foreign_keys=OFF');
+      try {
+        this.transaction(() => {
+          this.db.exec(`CREATE TABLE tasks_cardless (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              teamId TEXT NOT NULL, channelId TEXT,
+              title TEXT NOT NULL, assigneeId TEXT NOT NULL, creatorId TEXT NOT NULL,
+              dueDate TEXT, requiresReview INTEGER NOT NULL,
+              status TEXT NOT NULL DEFAULT 'todo', version INTEGER NOT NULL DEFAULT 0,
+              createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, messageTs TEXT,
+              lastComment TEXT, deletedAt TEXT, dueTime TEXT,
+              details TEXT NOT NULL DEFAULT '', images TEXT NOT NULL DEFAULT '[]',
+              completedAt TEXT, archivedAt TEXT, creatorCurrentUntil TEXT
+            );
+            INSERT INTO tasks_cardless SELECT id,teamId,channelId,title,assigneeId,creatorId,dueDate,requiresReview,status,version,createdAt,updatedAt,messageTs,lastComment,deletedAt,dueTime,details,images,completedAt,archivedAt,creatorCurrentUntil FROM tasks;
+            DROP TABLE tasks;
+            ALTER TABLE tasks_cardless RENAME TO tasks;
+            CREATE INDEX tasks_team_channel ON tasks(teamId, channelId);`);
+          if(this.db.prepare('PRAGMA foreign_key_check').all().length)throw new Error('Task migration found broken references.');
+          this.db.prepare('INSERT INTO schema_migrations(name) VALUES (?)').run('cardless-tasks');
+        });
+      } finally { this.db.exec('PRAGMA foreign_keys=ON'); }
+    }
   }
   close() { this.db.close(); }
   transaction(fn) {
@@ -200,7 +236,13 @@ export class TaskStore {
   get(id, teamId) { return this.db.prepare('SELECT * FROM tasks WHERE id=? AND teamId=?').get(id, teamId); }
   receipt(key) { return this.db.prepare('SELECT * FROM receipts WHERE key=?').get(key); }
   enqueue(id) {
-    this.db.prepare('INSERT INTO outbox(taskId) VALUES (?) ON CONFLICT(taskId) DO UPDATE SET attempts=0,nextAttempt=0,error=NULL').run(id);
+    // Only tasks with a channel card have a message to post or update.
+    this.db.prepare('INSERT INTO outbox(taskId) SELECT id FROM tasks WHERE id=? AND channelId IS NOT NULL ON CONFLICT(taskId) DO UPDATE SET attempts=0,nextAttempt=0,error=NULL').run(id);
+  }
+  // Queues a mention of the person who didn't make the change. Nobody is notified about their own task.
+  notice(task, version, kind, title = task.title, assigneeId = task.assigneeId) {
+    if (assigneeId === task.creatorId) return;
+    this.db.prepare('INSERT OR IGNORE INTO completion_notifications(taskId,version,title,creatorId,assigneeId,kind) VALUES (?,?,?,?,?,?)').run(task.id, version, title, task.creatorId, assigneeId, kind);
   }
   create(input, receiptKey) {
     return this.transaction(() => {
@@ -208,55 +250,64 @@ export class TaskStore {
       input = { ...input, ...validateTask(input), ...validateDetails(input.details??'',input.images??[]) };
       const now = new Date().toISOString();
       const result = this.db.prepare(`INSERT INTO tasks(teamId,channelId,title,assigneeId,creatorId,dueDate,dueTime,details,images,requiresReview,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.dueTime ?? null, input.details, JSON.stringify(input.images), 0, now, now);
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.teamId, input.channelId ?? null, input.title, input.assigneeId, input.creatorId, input.dueDate ?? null, input.dueTime ?? null, input.details, JSON.stringify(input.images), 0, now, now);
       const id = Number(result.lastInsertRowid);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, input.creatorId, 'created', now);
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
-      this.enqueue(id);
+      // A channel card mentions the assignee; without one they hear about the task by DM.
+      if (input.channelId) this.enqueue(id);
+      else this.notice(this.get(id, input.teamId), 0, 'assign');
       return this.get(id, input.teamId);
     });
   }
   transition({ id, teamId, channelId, actorId, action, version, receiptKey }) {
     return this.transaction(() => {
       const task = this.get(id, teamId);
-      if (!task || task.channelId !== channelId) throw new TaskError('That task is not available in this channel.');
+      // Card buttons pass their channel and must match the task's card; Relay Home passes none.
+      if (!task || (channelId !== undefined && task.channelId !== channelId)) throw new TaskError('That task is not available in this channel.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (version !== undefined && task.version !== version) throw new TaskError('This card has changed. Use its latest buttons, or run /tasks mine for the current status.');
       if (task.deletedAt) throw new TaskError('This task is archived. Its assigner can move it to Current from Past.');
       if(task.status==='todo'&&task.archivedAt)throw new TaskError('This task was archived. Its assigner can move it to Current before work resumes.');
       const canComplete = action === 'complete' && task.status === 'todo' && actorId === task.assigneeId;
-      const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.assigneeId;
-      if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can change this task’s status.');
+      // The assignee finishes work; only the assigner sends unarchived Done work back to To do.
+      const canReopen = action === 'reopen' && task.status === 'done' && actorId === task.creatorId && !isTaskArchived(task);
+      if (action === 'reopen' && task.status === 'done' && actorId === task.creatorId && !canReopen) throw new TaskError('This task is archived. Set it to Active before sending it back to To do.');
+      if (action === 'reopen' && !canReopen) throw new TaskError('This action is unavailable. Only the assigner can send a Done task back to To do.');
+      if (!canComplete && !canReopen) throw new TaskError('This action is unavailable. Only the assignee can mark this task done.');
       const now = new Date().toISOString();
       this.db.prepare('UPDATE tasks SET status=?,completedAt=?,archivedAt=NULL,creatorCurrentUntil=NULL,version=version+1,updatedAt=? WHERE id=?').run(canComplete ? 'done' : 'todo', canComplete?now:null, now, id);
       this.db.prepare('INSERT INTO history(taskId,actorId,action,createdAt) VALUES (?,?,?,?)').run(id, actorId, action, now);
-      if (canComplete) this.db.prepare('INSERT INTO completion_notifications(taskId,version,title,creatorId,assigneeId) VALUES (?,?,?,?,?)').run(id,task.version+1,task.title,task.creatorId,task.assigneeId);
-      else this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);
+      // Only the latest status change is announced: an unsent mention for the previous one is dropped.
+      this.db.prepare('DELETE FROM completion_notifications WHERE taskId=? AND sentTs IS NULL').run(id);
+      this.notice(task, task.version+1, canComplete?'complete':'reopen');
       if (receiptKey) this.db.prepare('INSERT INTO receipts(key,taskId) VALUES (?,?)').run(receiptKey, id);
       this.enqueue(id);
       return this.get(id, teamId);
     });
   }
   list({ teamId, channelId, userId, mode = 'team', includeDone = false }) {
-    let sql = 'SELECT * FROM tasks WHERE teamId=? AND channelId=? AND deletedAt IS NULL';
-    const args = [teamId, channelId];
+    // Your own lists cover all your tasks; team lists cover tasks whose card is in this channel.
+    const personal = ['mine', 'assigned'].includes(mode);
+    let sql = `SELECT * FROM tasks WHERE teamId=?${personal ? '' : ' AND channelId=?'} AND deletedAt IS NULL`;
+    const args = personal ? [teamId] : [teamId, channelId];
     if (mode === 'mine') { sql += ' AND assigneeId=?'; args.push(userId); }
     if (mode === 'assigned') { sql += ' AND creatorId=?'; args.push(userId); }
     if (!includeDone) sql += " AND status!='done' AND archivedAt IS NULL";
     return this.db.prepare(sql + ' ORDER BY createdAt DESC,id DESC LIMIT 50').all(...args);
   }
   history(id) { return this.db.prepare('SELECT * FROM history WHERE taskId=? ORDER BY id').all(id); }
-  personalPage({ teamId, channelId, userId, direction, page = 0, othersOnly = false, filter = 'all', size = 20, recentFirst = false, period = 'all', now = new Date() }) {
-    if (!teamId || !channelId || !userId || !['mine', 'assigned', 'trash'].includes(direction) || !['todo','done','all'].includes(filter) || !['current','past','all'].includes(period)) throw new TaskError('Invalid personal task query.');
+  personalPage({ teamId, userId, direction, page = 0, othersOnly = false, filter = 'all', size = 20, recentFirst = false, period = 'all', now = new Date() }) {
+    if (!teamId || !userId || !['mine', 'assigned', 'trash'].includes(direction) || !['todo','done','all'].includes(filter) || !['current','past','all'].includes(period)) throw new TaskError('Invalid personal task query.');
     const column = direction === 'mine' ? 'assigneeId' : 'creatorId';
-    let where = `teamId=? AND channelId=? AND ${column}=?${direction === 'assigned' && othersOnly ? ' AND assigneeId!=?' : ''} AND deletedAt IS ${direction === 'trash' ? 'NOT ' : ''}NULL${direction !== 'trash' && filter !== 'all' ? ' AND status=?' : ''}`;
-    const args = [teamId, channelId, userId, ...(direction === 'assigned' && othersOnly ? [userId] : [])];
+    let where = `teamId=? AND ${column}=?${direction === 'assigned' && othersOnly ? ' AND assigneeId!=?' : ''} AND deletedAt IS ${direction === 'trash' ? 'NOT ' : ''}NULL${direction !== 'trash' && filter !== 'all' ? ' AND status=?' : ''}`;
+    const args = [teamId, userId, ...(direction === 'assigned' && othersOnly ? [userId] : [])];
     if (direction !== 'trash' && filter !== 'all') args.push(filter);
     if(period!=='all'&&direction!=='trash') {
       const role = direction==='mine'?'assigneeId':'creatorId';
       const current = direction==='mine' ? "deletedAt IS NULL AND archivedAt IS NULL AND status='todo'" : "deletedAt IS NULL AND archivedAt IS NULL AND (status='todo' OR coalesce(creatorCurrentUntil,strftime('%Y-%m-%dT%H:%M:%fZ',completedAt,'+7 days'))>?)";
-      where=`teamId=? AND channelId=? AND ${role}=? AND ${period==='past'?'NOT ':''}(${current})`;
-      args.length=0;args.push(teamId,channelId,userId);if(direction==='assigned')args.push(now.toISOString());
+      where=`teamId=? AND ${role}=? AND ${period==='past'?'NOT ':''}(${current})`;
+      args.length=0;args.push(teamId,userId);if(direction==='assigned')args.push(now.toISOString());
     }
     const summary = this.db.prepare(`SELECT count(*) AS total,coalesce(sum(status='done'),0) AS done FROM tasks WHERE ${where}`).get(...args);
     size = Number.isSafeInteger(size) ? Math.max(1,Math.min(20,size)) : 20;
@@ -271,12 +322,23 @@ export class TaskStore {
     // A status change during delivery must remain queued for a fresh update.
     this.db.prepare('DELETE FROM outbox WHERE taskId=? AND (SELECT version FROM tasks WHERE id=?)=?').run(task.id, task.id, task.version);
   }
+  // Slack can't post or update this card (deleted, or Relay can't post there): keep the task and stop referencing a message.
+  detachCard(id) {
+    this.transaction(() => {
+      const task = this.db.prepare('SELECT * FROM tasks WHERE id=?').get(id);
+      if (!task?.channelId) return;
+      this.db.prepare('UPDATE tasks SET channelId=NULL,messageTs=NULL WHERE id=?').run(id);
+      this.db.prepare('DELETE FROM outbox WHERE taskId=?').run(id);
+      // A card that was never posted never mentioned the assignee, so tell them directly.
+      if (!task.messageTs && task.status === 'todo' && !task.archivedAt) this.notice(task, task.version, 'assign');
+    });
+  }
   deliveryFailed(id, error, retryAfter = 0) {
     this.db.prepare('UPDATE outbox SET attempts=attempts+1,error=?,nextAttempt=? + min(300000,1000 * (1 << min(attempts,8))) WHERE taskId=?').run(error, Date.now() + retryAfter, id);
   }
   pendingNotifications() {
-    return this.db.prepare(`SELECT t.id,t.teamId,t.channelId,t.messageTs,n.id AS notificationId,n.title,n.assigneeId,n.creatorId FROM completion_notifications n JOIN tasks t ON t.id=n.taskId
-      WHERE n.sentTs IS NULL AND n.nextAttempt<=? AND t.messageTs IS NOT NULL AND t.deletedAt IS NULL
+    return this.db.prepare(`SELECT t.id,t.teamId,t.channelId,t.messageTs,n.id AS notificationId,n.kind,n.title,n.assigneeId,n.creatorId FROM completion_notifications n JOIN tasks t ON t.id=n.taskId
+      WHERE n.sentTs IS NULL AND n.nextAttempt<=? AND t.deletedAt IS NULL
       AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.taskId=t.id) ORDER BY t.id LIMIT 10`).all(Date.now());
   }
   notificationDelivered(id, ts) {
@@ -285,11 +347,15 @@ export class TaskStore {
   notificationFailed(id, error, retryAfter = 0) {
     this.db.prepare('UPDATE completion_notifications SET attempts=attempts+1,error=?,nextAttempt=? + min(300000,1000 * (1 << min(attempts,8))) WHERE id=?').run(error, Date.now() + retryAfter, id);
   }
+  // The recipient can never receive this (e.g. deactivated); keep the error but stop retrying.
+  notificationDropped(id, error) {
+    this.db.prepare('UPDATE completion_notifications SET attempts=attempts+1,error=?,nextAttempt=? WHERE id=?').run(error, Number.MAX_SAFE_INTEGER, id);
+  }
   manage({ id, teamId, channelId, actorId, version, action, changes, receiptKey }) {
     action=action==='delete'?'archive':action==='restore'?'unarchive':action;
     return this.transaction(() => {
       const task = this.get(id, teamId);
-      if (!task || task.channelId !== channelId || task.creatorId !== actorId) throw new TaskError('Only the assigner can edit, archive, or reactivate this task.');
+      if (!task || (channelId !== undefined && task.channelId !== channelId) || task.creatorId !== actorId) throw new TaskError('Only the assigner can edit, archive, or reactivate this task.');
       if (receiptKey && this.receipt(receiptKey)) return task;
       if (!Number.isSafeInteger(version) || version !== task.version) throw new TaskError('This task changed. Refresh the task list and try again.');
       const now = new Date().toISOString();
@@ -297,6 +363,11 @@ export class TaskStore {
         const data = validateTask(changes);
         const extra=validateDetails(changes.details??task.details,changes.images??taskImages(task));
         this.db.prepare('UPDATE tasks SET title=?,assigneeId=?,dueDate=?,dueTime=?,details=?,images=?,version=version+1,updatedAt=? WHERE id=?').run(data.title,data.assigneeId,data.dueDate,data.dueTime,extra.details,JSON.stringify(extra.images),now,id);
+        if (data.assigneeId !== task.assigneeId) {
+          // Editing a card notifies no one, so a new assignee of active work gets a mention; an unsent one for the previous assignee is dropped.
+          this.db.prepare("DELETE FROM completion_notifications WHERE taskId=? AND kind='assign' AND sentTs IS NULL").run(id);
+          if (task.status === 'todo' && !task.archivedAt) this.notice(task, task.version+1, 'assign', data.title, data.assigneeId);
+        }
       } else if (['archive','unarchive'].includes(action)) {
         this.db.prepare('UPDATE tasks SET deletedAt=NULL,archivedAt=?,creatorCurrentUntil=?,version=version+1,updatedAt=? WHERE id=?').run(action==='archive'?now:null,action==='unarchive'&&task.status==='done'?new Date(Date.parse(now)+7*24*60*60*1000).toISOString():null,now,id);
       } else throw new TaskError('This action is unavailable for the task’s current state.');

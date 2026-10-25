@@ -10,19 +10,20 @@ export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
   const payload = envelope.payload;
   if (!envelope.envelope_id || !payload) return { ack };
   if (envelope.type === 'events_api') {
-    const home = homeRequest(teamId, allowedChannelId, payload, true);
+    const home = homeRequest(teamId, payload, true);
     return { ack, ...(home ? { home } : {}) };
   }
   if (envelope.type === 'interactive' && (['home','modal'].includes(payload.view?.type) || payload.type === 'view_submission')) {
     try {
-      const ui = handleAppUi(store,{teamId,allowedChannelId},payload,`socket:${envelope.envelope_id}`);
+      const ui = handleAppUi(store,{teamId},payload,`socket:${envelope.envelope_id}`);
       if (ui?.ackPayload && envelope.accepts_response_payload) ack.payload=ui.ackPayload;
       return {ack,...(ui?.home?{home:ui.home}:{}),...(ui?.openModal?{openModal:ui.openModal}:{}),...(ui?.updateModal?{updateModal:ui.updateModal}:{})};
     } catch { return { ack }; }
   }
   const actualTeam = envelope.type === 'slash_commands' ? payload.team_id : payload.team?.id;
   const actualChannel = envelope.type === 'slash_commands' ? payload.channel_id : payload.channel?.id;
-  if (actualTeam !== teamId || actualChannel !== allowedChannelId) {
+  // The optional test lock keeps slash commands and card buttons in one channel.
+  if (actualTeam !== teamId || (allowedChannelId && actualChannel !== allowedChannelId)) {
     if (envelope.accepts_response_payload && envelope.type === 'slash_commands') ack.payload = { response_type: 'ephemeral', text: 'Relay testing is restricted to the private test channel. No task was created.' };
     return { ack };
   }
@@ -42,7 +43,7 @@ export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
 }
 
 export function startSocket({ store, client, appToken, teamId, allowedChannelId, WebSocketImpl = WebSocket, fetcher = fetch, logger = console }) {
-  if (!appToken || !teamId || !allowedChannelId) throw new Error('Socket testing requires app token, workspace ID, and private channel ID.');
+  if (!appToken || !teamId) throw new Error('Socket mode requires an app token and workspace ID.');
   let socket, reconnectTimer, stopped = false, flushing = false, attempts = 0, ready = false;
   const flush = async () => {
     if (flushing || stopped) return;
@@ -77,14 +78,14 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
           const envelope = JSON.parse(String(event.data));
           if (envelope.type === 'hello') {
             clearTimeout(openTimeout); ready = true; attempts = 0;
-            logger.log('Relay connected to Slack. Testing is restricted to the configured private channel.');
+            logger.log(allowedChannelId ? 'Relay connected to Slack. Slash commands and card buttons are limited to the test channel.' : 'Relay connected to Slack.');
             void flush(); return;
           }
           if (envelope.type === 'disconnect') { current.close(); retry(); return; }
           if (!envelope.envelope_id) return;
           const { ack, feedback, home, openModal, updateModal } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
           current.send(JSON.stringify(ack));
-          if (home || openModal || updateModal) void runAppUiEffects(client,store,{teamId,allowedChannelId},{home,openModal,updateModal}).catch(() => logger.error('Relay could not refresh Home. Use Refresh or reopen Home.'));
+          if (home || openModal || updateModal) void runAppUiEffects(client,store,{teamId},{home,openModal,updateModal}).catch(() => logger.error('Relay could not refresh Home. Use Refresh or reopen Home.'));
           if (feedback?.user) void client.call('chat.postEphemeral', feedback).catch(() => {});
           void flush();
         } catch { logger.error('Relay could not process a socket event.'); }
@@ -100,7 +101,7 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { SLACK_BOT_TOKEN: token, SLACK_APP_TOKEN: appToken, SLACK_TEAM_ID: teamId, SLACK_ALLOWED_CHANNEL_ID: allowedChannelId } = process.env;
-  if (!token || !appToken || !teamId || !allowedChannelId) throw new Error('Set Slack bot/app tokens, workspace ID, and private channel ID in .env.');
+  if (!token || !appToken || !teamId) throw new Error('Set Slack bot/app tokens and workspace ID in .env. SLACK_ALLOWED_CHANNEL_ID is optional and limits slash commands to one test channel.');
   const store = new TaskStore(process.env.DATABASE_PATH || './data/relay.sqlite');
   const runner = startSocket({ store, client: new SlackClient(token), appToken, teamId, allowedChannelId });
   // Let an in-flight Slack delivery finish before closing the database.

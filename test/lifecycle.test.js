@@ -22,7 +22,7 @@ test('Completion leaves assignee Current immediately and assigner Current exactl
  task=store.manage({...context,id:task.id,version:task.version,action:'edit',changes:{...base,details:'More notes'}});
  assert.equal(Date.parse(task.completedAt),completed);assert.equal(page(store,base.creatorId,'assigned','past',new Date(completed+week)).total,1);store.close();
 });
-test('Archive is creator-only, changes only their list, and reopening resets lifecycle state',()=>{
+test('Archive is creator-only, changes only their list, and sending back requires Active and resets lifecycle state',()=>{
  const store=new TaskStore();let task=store.create(base);
  task=store.transition({...context,id:task.id,actorId:base.assigneeId,action:'complete'});
  assert.throws(()=>store.manage({...context,actorId:base.assigneeId,id:task.id,version:task.version,action:'archive'}));
@@ -32,7 +32,9 @@ test('Archive is creator-only, changes only their list, and reopening resets lif
  assert.equal(page(store,base.creatorId,'assigned','current').total,0);assert.equal(page(store,base.creatorId,'assigned','past').total,1);assert.equal(page(store,base.assigneeId,'mine','past').total,1);
  task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});assert.equal(task.completedAt,original);assert.equal(page(store,base.creatorId,'assigned','current').total,1);
  task=store.manage({...context,id:task.id,version:task.version,action:'archive'});
- task=store.transition({...context,id:task.id,version:task.version,actorId:base.assigneeId,action:'reopen'});
+ assert.throws(()=>store.transition({...context,id:task.id,version:task.version,actorId:base.creatorId,action:'reopen'}),/Active/);
+ task=store.manage({...context,id:task.id,version:task.version,action:'unarchive'});
+ task=store.transition({...context,id:task.id,version:task.version,actorId:base.creatorId,action:'reopen'});
  assert.equal(task.completedAt,null);assert.equal(task.archivedAt,null);assert.equal(task.creatorCurrentUntil,null);
  assert.equal(page(store,base.creatorId,'assigned','current').total,1);assert.equal(page(store,base.assigneeId,'mine','current').total,1);assert.equal(page(store,base.creatorId,'assigned','past').total,0);store.close();
 });
@@ -47,7 +49,7 @@ test('Archived work stays readable in Past and only the creator can reactivate i
 });
 test('View switching resets pages, Past orders recent activity, and pagination bounds apply',()=>{
  const store=new TaskStore();for(let i=0;i<26;i++){const t=store.create({...base,title:'Task '+i});store.transition({...context,id:t.id,actorId:base.assigneeId,action:'complete'});}
- const request=homeRequest(base.teamId,base.channelId,action({id:1,version:0},'home_past',base.assigneeId,{mineExpanded:true,minePage:2}));assert.equal(request.period,'past');assert.equal(request.mineExpanded,false);assert.equal(request.minePage,0);
+ const request=homeRequest(base.teamId,action({id:1,version:0},'home_past',base.assigneeId,{mineExpanded:true,minePage:2}));assert.equal(request.period,'past');assert.equal(request.mineExpanded,false);assert.equal(request.minePage,0);
  const view=taskHome(store,{...base,userId:base.assigneeId,...request});const table=view.blocks.find(b=>b.type==='data_table');assert.equal(table.rows[0][4].text,'Created at');assert.equal(table.rows[1][4].type,'raw_number');assert.equal(table.rows[1][4].value,Date.parse(store.get(26,base.teamId).createdAt));assert.equal(table.rows.length,6);assert.equal(table.rows[1][0].element.text.text,'#26 · Task 25');
  assert.equal(taskHome(store,{...base,userId:base.assigneeId,period:'past',mineExpanded:true}).blocks.find(b=>b.type==='data_table').rows.length,21);
  assert.equal(page(store,'USTRANGER','mine','past').total,0);assert.equal(store.personalPage({...base,teamId:'TOTHER',userId:base.assigneeId,direction:'mine',period:'past'}).total,0);store.close();
@@ -91,7 +93,7 @@ test('Completing from Current shows a named success message above the tables and
  const view=taskHome(store,{...base,...result.home});
  assert.match(view.blocks[1].text.text,/✅.*<!channel> plain text task.*marked Done and moved to Past/);assert.equal(view.blocks[1].text.type,'plain_text');
  assert.equal(view.blocks[1].accessory.text.text,'View Past');assert.equal(view.blocks[1].accessory.action_id,'home_view_past');
- const past=homeRequest(base.teamId,base.channelId,action(task,'home_view_past',base.assigneeId));assert.equal(past.period,'past');
+ const past=homeRequest(base.teamId,action(task,'home_view_past',base.assigneeId));assert.equal(past.period,'past');
  const pastView=taskHome(store,{...base,...past});assert.equal(pastView.blocks.find(b=>b.type==='data_table').rows[1][0].element.text.text,`#${task.id} · ${task.title}`);assert.equal(pastView.blocks.some(b=>b.accessory?.action_id==='home_view_past'),false);store.close();
 });
 

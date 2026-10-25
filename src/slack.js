@@ -12,7 +12,7 @@ export const escapeSlack = text => String(text).replaceAll('&', '&amp;').replace
 
 export function taskMessage(task) {
   const choices = [];
-  if (!task.deletedAt && !(task.status==='todo'&&task.archivedAt)) choices.push(task.status === 'todo' ? ['complete', 'Mark done'] : ['reopen', 'Reopen']);
+  if (!task.deletedAt && task.status==='todo' && !task.archivedAt) choices.push(['complete', 'Mark done']);
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: `Relay · Task #${task.id}` } },
     { type: 'section', text: { type: 'plain_text', text: task.title } },
@@ -29,7 +29,7 @@ export function taskMessage(task) {
     value: JSON.stringify({ id: task.id, version: task.version }),
     ...(action === 'complete' ? { style: 'primary' } : {})
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Archived. The assigner can move it to Current again.' : task.status==='todo'&&task.archivedAt?'Relay · Archived. Work is no longer required. The assigner can move it to Current to reactivate it.':task.status === 'done' ? 'Relay · Done. Only the assignee can reopen it.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Archived. The assigner can move it to Current again.' : task.status==='todo'&&task.archivedAt?'Relay · Archived. Work is no longer required. The assigner can move it to Current to reactivate it.':task.status === 'done' ? 'Relay · Done. The assigner can send it back to To do from Relay Home.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
   return { text: `Task #${task.id}: ${task.title} — ${labels[task.status]}${isTaskArchived(task)?' · Archived':''}`, blocks };
 }
 
@@ -58,11 +58,22 @@ export class SlackClient {
     return result.ts;
   }
   async notifyCompletion(task) {
+    return this.mention(task, task.creatorId, task.assigneeId, `marked task #${task.id} *Done*.`);
+  }
+  async notifySentBack(task) {
+    return this.mention(task, task.assigneeId, task.creatorId, `sent task #${task.id} back to *To do*.`);
+  }
+  async notifyAssigned(task) {
+    return this.mention(task, task.assigneeId, task.creatorId, `assigned task #${task.id} to you.`);
+  }
+  // Replies in the task card's thread when there is one; otherwise DMs the recipient from Relay.
+  async mention(task, recipientId, actorId, change) {
+    const lead = task.messageTs ? `<@${recipientId}> — <@${actorId}>` : `<@${actorId}>`;
     const result = await this.call('chat.postMessage', {
-      channel: task.channelId, thread_ts: task.messageTs, reply_broadcast: false,
-      text: `<@${task.creatorId}> — <@${task.assigneeId}> marked task #${task.id} done: ${escapeSlack(task.title)}`,
+      ...(task.messageTs ? { channel: task.channelId, thread_ts: task.messageTs, reply_broadcast: false } : { channel: recipientId }),
+      text: `${lead} ${change.replaceAll('*', '')} ${escapeSlack(task.title)}`,
       blocks: [
-        { type: 'section', text: { type: 'mrkdwn', text: `<@${task.creatorId}> — <@${task.assigneeId}> marked task #${task.id} *Done*.` } },
+        { type: 'section', text: { type: 'mrkdwn', text: `${lead} ${change}` } },
         { type: 'section', text: { type: 'plain_text', text: task.title } }
       ], unfurl_links: false, unfurl_media: false
     });
@@ -70,14 +81,27 @@ export class SlackClient {
   }
 }
 
+// Slack errors meaning the card can never be posted or updated (deleted, or Relay can't post there).
+const lostCard = new Set(['message_not_found', 'cant_update_message', 'edit_window_closed', 'channel_not_found', 'not_in_channel', 'is_archived', 'restricted_action', 'thread_not_found']);
+// Slack errors meaning a DM can never reach the person.
+const unreachableUser = new Set(['user_not_found', 'user_disabled', 'account_inactive', 'cannot_dm_bot', 'channel_not_found', 'not_in_channel', 'restricted_action']);
+
 export async function flushOutbox(store, client) {
   for (const item of store.pending()) {
     const task = store.get(item.taskId, item.teamId);
     try { store.delivered(task, await client.deliver(task)); }
-    catch (error) { store.deliveryFailed(task.id, error.message, error.retryAfter); }
+    catch (error) {
+      if (lostCard.has(error.message)) store.detachCard(task.id);
+      else store.deliveryFailed(task.id, error.message, error.retryAfter);
+    }
   }
   for (const task of store.pendingNotifications()) {
-    try { store.notificationDelivered(task.notificationId, await client.notifyCompletion(task)); }
-    catch (error) { store.notificationFailed(task.notificationId, error.message, error.retryAfter); }
+    try { store.notificationDelivered(task.notificationId, await (task.kind === 'reopen' ? client.notifySentBack(task) : task.kind === 'assign' ? client.notifyAssigned(task) : client.notifyCompletion(task))); }
+    catch (error) {
+      // A lost thread falls back to a DM on the next flush; an unreachable person is not retried.
+      if (task.messageTs && lostCard.has(error.message)) store.detachCard(task.id);
+      else if (!task.messageTs && unreachableUser.has(error.message)) store.notificationDropped(task.notificationId, error.message);
+      else store.notificationFailed(task.notificationId, error.message, error.retryAfter);
+    }
   }
 }

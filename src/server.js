@@ -18,25 +18,27 @@ export function handleCommand(store, form, receiptKey) {
     const mode = text || 'mine';
     if (!['mine', 'assigned', 'team', 'all'].includes(mode)) return ephemeral(help);
     const tasks = store.list({ ...context, mode, includeDone: mode === 'all' });
-    if (!tasks.length) return ephemeral('No matching tasks in this channel. Create one with /task @person Task title.');
-    return ephemeral(`*${mode === 'assigned' ? 'Unfinished tasks you assigned' : 'Tasks in this channel'}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}*${isTaskArchived(task)?' · Archived':''} · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nUse Mark done on each original task card. Showing up to 50 tasks.');
+    if (!tasks.length) return ephemeral('No matching tasks. Create one with /task @person Task title.');
+    const heading = { mine: 'Your unfinished tasks', assigned: 'Unfinished tasks you assigned', team: 'Unfinished tasks in this channel', all: 'Tasks in this channel' }[mode];
+    return ephemeral(`*${heading}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}*${isTaskArchived(task)?' · Archived':''} · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nMark tasks done from their card or Relay Home. Showing up to 50 tasks.');
   }
   if (form.command !== '/task') throw new TaskError('Unknown command. Use /task or /tasks.');
   if (!text || text === 'help') return ephemeral(help);
   const task = store.create({ ...context, creatorId: context.userId, ...parseTask(text) }, receiptKey);
-  return ephemeral(`Task #${task.id} saved and queued for this channel. If its card doesn’t appear, invite @Relay to the channel and check delivery health.`);
+  return ephemeral(`Task #${task.id} saved. Its card will appear here. If Relay can’t post in this conversation, the task stays in Relay Home and the assignee gets a direct message.`);
 }
 
 export function handleInteraction(store, payload, receiptKey) {
   if (payload.type !== 'block_actions' || payload.actions?.length !== 1) throw new TaskError('Unsupported interaction.');
   const selected = payload.actions[0];
-  if (!['task_complete','task_reopen'].includes(selected.action_id)) throw new TaskError('This is an older task button. Use the updated card.');
+  if (selected.action_id === 'task_reopen') throw new TaskError('Reopen moved to Relay Home. The assigner can send a Done task back to To do from Assigned by you.');
+  if (selected.action_id !== 'task_complete') throw new TaskError('This is an older task button. Use the updated card.');
   let value;
   try { value = JSON.parse(selected.value); } catch { throw new TaskError('Invalid task button.'); }
   if (!Number.isSafeInteger(value.id) || !Number.isSafeInteger(value.version)) throw new TaskError('Invalid task button.');
   return store.transition({ id: value.id, version: value.version, teamId: payload.team?.id,
     channelId: payload.channel?.id, actorId: payload.user?.id,
-    action: selected.action_id.slice(5), receiptKey });
+    action: 'complete', receiptKey });
 }
 
 async function readBody(req) {
@@ -99,9 +101,9 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
       if (path === '/slack/events') {
         const payload = JSON.parse(raw.toString());
         if (payload.type === 'url_verification') return send(res, 200, { challenge: payload.challenge });
-        const home = homeRequest(teamId, allowedChannelId, payload, true);
+        const home = homeRequest(teamId, payload, true);
         send(res, 200, {});
-        if (home && client) void publishTaskHome(client, store, { teamId, channelId: allowedChannelId, ...home }).catch(() => {});
+        if (home && client) void publishTaskHome(client, store, { teamId, ...home }).catch(() => {});
         return;
       }
       const form = Object.fromEntries(new URLSearchParams(raw.toString()));
@@ -115,9 +117,9 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
         const payload = JSON.parse(form.payload ?? '{}');
         if (payload.team?.id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
         if (['home','modal'].includes(payload.view?.type) || payload.type === 'view_submission') {
-          const ui=handleAppUi(store,{teamId,allowedChannelId},payload,key);
+          const ui=handleAppUi(store,{teamId},payload,key);
           send(res,200,ui?.ackPayload??{});
-          if(ui&&client)void runAppUiEffects(client,store,{teamId,allowedChannelId},ui).catch(()=>{});
+          if(ui&&client)void runAppUiEffects(client,store,{teamId},ui).catch(()=>{});
           void flush();
           return;
         }

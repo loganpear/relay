@@ -55,12 +55,12 @@ test('tasks, audit history, and delivery queue survive a restart', () => {
   } finally { rmSync(directory, { recursive: true }); }
 });
 
-test('lists isolate channels and workspaces, hide completed work by default', () => {
+test('personal lists span channels, team lists stay in their channel, workspaces stay isolated, and completed work is hidden by default', () => {
   const store = new TaskStore();
-  store.create(base); store.create({ ...base, teamId: 'T2' }); store.create({ ...base, channelId: 'C2' });
+  store.create(base); store.create({ ...base, teamId: 'T2' }); store.create({ ...base, channelId: 'C2' }); store.create({ ...base, channelId: null });
   const done = store.create({ ...base }); transition(store, done, 'complete');
   const context = { teamId: 'T1', channelId: 'C1', userId: 'UASSIGNEE' };
-  assert.equal(store.list({ ...context, mode: 'mine' }).length, 1);
+  assert.equal(store.list({ ...context, mode: 'mine' }).length, 3);
   assert.equal(store.list({ ...context, includeDone: true }).length, 2);
   assert.equal(store.list({ ...context, userId: 'USTRANGER', mode: 'mine' }).length, 0);
   store.close();
@@ -82,11 +82,11 @@ test('delivery retries preserve saved work and use chat.update after posting', a
   let calls = [], fail = true;
   const client = new SlackClient('fake-token', async (url, options) => {
     calls.push({ url, body: JSON.parse(options.body) });
-    return { ok: true, status: 200, json: async () => fail ? { ok: false, error: 'not_in_channel' } : { ok: true, ts: '123.456' } };
+    return { ok: true, status: 200, json: async () => fail ? { ok: false, error: 'internal_error' } : { ok: true, ts: '123.456' } };
   });
   await flushOutbox(store, client);
   assert.equal(store.get(task.id, 'T1').status, 'todo');
-  assert.equal(store.db.prepare('SELECT error FROM outbox').get().error, 'not_in_channel');
+  assert.equal(store.db.prepare('SELECT error FROM outbox').get().error, 'internal_error');
   fail = false; store.db.exec('UPDATE outbox SET nextAttempt=0'); await flushOutbox(store, client);
   assert.equal(store.pending().length, 0);
   assert.equal(store.get(task.id, 'T1').messageTs, '123.456');

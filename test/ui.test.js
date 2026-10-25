@@ -22,7 +22,7 @@ test('New task opens a Slack form, saves once, and preserves the current view',(
  const meta=JSON.parse(opened.openModal.view.private_metadata);
  const payload=submit(meta,{dueDate:'2026-11-05'});
  const saved=handleAppUi(store,config,payload,'first');handleAppUi(store,config,payload,'retry');
- const tasks=store.list({teamId:'TTEST',channelId:'CTEST'});
+ const tasks=store.list({teamId:'TTEST',userId:'UME',mode:'assigned'});
  assert.equal(tasks.length,1);assert.equal(tasks[0].dueDate,'2026-11-05');
  assert.equal(tasks[0].creatorId,'UME');assert.equal(saved.home.assignedExpanded,true);assert.equal(saved.home.assignedPage,1);
  store.close();
@@ -39,12 +39,14 @@ test('Edit form changes assignee and date, clears optional dates, and rejects st
  handleAppUi(store,config,submit(current,{title:'No deadline',assigneeId:'UME'},'UME','VCLEAR'));
  assert.equal(store.get(task.id,'TTEST').dueDate,null);store.close();
 });
-test('Assignees cannot edit or delete; neither role can cross a workspace or channel',()=>{
+test('Assignees cannot edit or delete; neither role can cross a workspace, and card controls must match their channel',()=>{
  const store=new TaskStore();const task=store.create(base);
  for(const name of ['ui_edit','ui_delete'])assert.equal(handleAppUi(store,config,action(name,select(task),'UOTHER')).openModal,undefined);
  assert.equal(handleAppUi(store,config,{...action('ui_new'),team:{id:'TOTHER'}}),null);
- assert.equal(handleAppUi(store,{...config,allowedChannelId:'COTHER'},action('ui_edit',select(task))).openModal,undefined);
+ assert.equal(handleAppUi(store,{teamId:'TOTHER'},action('ui_edit',select(task))),null);
  assert.throws(()=>store.manage({id:task.id,teamId:'TTEST',channelId:'CTEST',actorId:'UOTHER',version:0,action:'delete'}));
+ assert.throws(()=>store.manage({id:task.id,teamId:'TTEST',channelId:'COTHER',actorId:'UME',version:0,action:'delete'}),/assigner/);
+ assert.throws(()=>store.transition({id:task.id,teamId:'TTEST',channelId:'COTHER',actorId:'UOTHER',version:0,action:'complete'}),/channel/);
  store.close();
 });
 test('Old delete controls archive safely and the UI only offers archive terminology',()=>{
@@ -58,13 +60,13 @@ test('Old delete controls archive safely and the UI only offers archive terminol
  assert.equal(taskMessage(task).blocks.some(b=>b.type==='actions'),false);
  handleAppUi(store,config,action('ui_restore',select(task)),'legacy-restore');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(store.history(task.id).at(-1).action,'unarchive');store.close();
 });
-test('Mark done and Reopen enforce roles and support completing a task again',()=>{
+test('Only the assignee marks done, only the assigner sends it back, and the task can be completed again',()=>{
  const store=new TaskStore();let task=store.create(base);
  assert.throws(()=>store.transition({...base,id:task.id,actorId:'UME',version:0,action:'complete'}));
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:0,action:'complete'});
  store.notificationDelivered(store.pendingNotifications()[0]?.notificationId??1,'sent');
- assert.throws(()=>store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'reopen'}),/assignee/);
- task=store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'reopen'});
+ assert.throws(()=>store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'reopen'}),/assigner/);
+ task=store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'reopen'});
  assert.equal(task.status,'todo');
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'complete'});
  assert.equal(task.status,'done');assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,2);
@@ -103,25 +105,29 @@ test('Previously published dropdowns remain safe during the table rollout',()=>{
  const done=choose('done');const result=handleAppUi(store,config,done,'dropdown-done');assert.equal(result.openModal,undefined);assert.equal(result.ackPayload.response_action,undefined);
  handleAppUi(store,config,done,'dropdown-done');task=store.get(task.id,'TTEST');assert.equal(task.status,'done');assert.equal(task.version,1);assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,1);
  assert.match(handleAppUi(store,config,done,'stale').home.notice,/changed/);
- assert.match(handleAppUi(store,config,choose('todo','UME'),'owner-reopen').home.notice,/assignee/);
+ assert.match(handleAppUi(store,config,choose('todo'),'assignee-reopen').home.notice,/assigner/);
  assert.equal(store.get(task.id,'TTEST').status,'done');
- handleAppUi(store,config,choose('todo'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
+ handleAppUi(store,config,choose('todo','UME'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
  assert.match(handleAppUi(store,config,choose('done','UME'),'forged').home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'todo');
  handleAppUi(store,config,choose('todo'),'noop');assert.equal(store.get(task.id,'TTEST').version,2);
  assert.match(handleAppUi(store,config,choose('invalid'),'invalid').home.notice,/Choose/);store.close();
 });
 
-test('Assigned-by-you status is read-only and stale creator buttons cannot reopen tasks',()=>{
+test('Assigners can send Done work back from Assigned by you, but not once archived, and old assignee buttons cannot reopen',()=>{
  const store=new TaskStore();let task=store.create(base);
+ const ownerRow=period=>taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',period}).blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1];
+ assert.equal(ownerRow('current')[3].type,'raw_text');
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
- const owner=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME'});
- const row=owner.blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1];
- assert.equal(row[3].type,'raw_text');assert.equal(row[3].text,'✅ Done');
+ const row=ownerRow('current');
+ assert.equal(row[3].element.action_id.split(':')[0],'ui_choose_status');assert.equal(row[3].element.text.text,'▾ ✅ Done');
  assert.equal(row[0].element.action_id.split(':')[0],'ui_details');assert.equal(row[4].element.action_id.split(':')[0],'ui_choose_archive');
- const denied=handleAppUi(store,config,action('ui_reopen:assigned:'+task.id,select(task)),'old-creator-button');
- assert.match(denied.home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
+ const denied=handleAppUi(store,config,action('ui_reopen:mine:'+task.id,select(task),'UOTHER'),'old-assignee-button');
+ assert.match(denied.home.notice,/assigner/);assert.equal(store.get(task.id,'TTEST').status,'done');assert.equal(store.get(task.id,'TTEST').version,1);
  const mine=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER',period:'past'});
- assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].type,'raw_text');store.close();
+ assert.equal(mine.blocks.find(b=>b.type==='data_table').rows[1][3].type,'raw_text');
+ task=store.manage({...base,id:task.id,actorId:'UME',version:task.version,action:'archive'});
+ assert.equal(ownerRow('past')[3].type,'raw_text');
+ assert.equal(handleAppUi(store,config,action('ui_choose_status:assigned:'+task.id,select(task))).openModal,undefined);store.close();
 });
 
 test('Task forms set and clear due times and show missing-date errors inline',()=>{
@@ -130,7 +136,7 @@ test('Task forms set and clear due times and show missing-date errors inline',()
  const meta=JSON.parse(open.openModal.view.private_metadata);
  const invalid=handleAppUi(store,config,submit(meta,{dueTime:'12:30'},'UME','VTIMEONLY'));assert.ok(invalid.ackPayload.errors.due_date);
  handleAppUi(store,config,submit(meta,{dueDate:'2026-11-06',dueTime:'12:30'},'UME','VTIMED'));
- let task=store.list({teamId:'TTEST',channelId:'CTEST'})[0];assert.equal(task.dueTime,'12:30');
+ let task=store.list({teamId:'TTEST',userId:'UME',mode:'assigned'})[0];assert.equal(task.dueTime,'12:30');
  const edit=handleAppUi(store,config,action('ui_edit',select(task)));assert.equal(edit.openModal.view.blocks.find(b=>b.block_id==='due_time').element.initial_time,'12:30');
  handleAppUi(store,config,submit(JSON.parse(edit.openModal.view.private_metadata),{dueDate:'2026-11-06'},'UME','VCLEARTIME'));
  assert.equal(store.get(task.id,'TTEST').dueTime,null);store.close();
@@ -192,7 +198,7 @@ test('New tasks save details and a second save in the same details modal is not 
  const store=new TaskStore();const form=handleAppUi(store,config,action('ui_new')).openModal.view;
  const create=submit(JSON.parse(form.private_metadata),{title:'Details on creation'},'UME','VCREATEDETAILS');create.view.state.values.details={value:{value:'First requirements'}};
  assert.deepEqual(handleAppUi(store,config,create).ackPayload,{});
- let task=store.list({teamId:'TTEST',channelId:'CTEST'})[0];assert.equal(task.details,'First requirements');
+ let task=store.list({teamId:'TTEST',userId:'UME',mode:'assigned'})[0];assert.equal(task.details,'First requirements');
  for(const details of ['Second requirements','Third requirements']) {
  const edit=handleAppUi(store,config,action('ui_edit',select(task))).openModal.view;
  const payload=submit(JSON.parse(edit.private_metadata),{title:task.title},'UME','VSAME');payload.view.state.values.details={value:{value:details}};
@@ -235,7 +241,9 @@ test('Table choice windows save explicit status and archive values with role and
  assert.equal(save(archive,'archived','UME','VARCHIVE').home.notice,undefined);task=store.get(task.id,'TTEST');assert.ok(task.archivedAt);assert.equal(task.status,'done');
  archive=open('archive','UME','assigned').openModal.view;assert.equal(archive.blocks[1].element.initial_option.value,'archived');
  assert.equal(save(archive,'active','UME','VACTIVE').home.notice,undefined);task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(task.status,'done');
- const reopen=open('status','UOTHER','mine').openModal.view;save(reopen,'todo','UOTHER','VREOPEN');task=store.get(task.id,'TTEST');
+ assert.equal(open('status','UOTHER','mine').openModal,undefined);
+ const sendBack=open('status','UME','assigned').openModal.view;assert.match(JSON.stringify(sendBack),/send this task back/);
+ assert.equal(save(sendBack,'todo','UME','VREOPEN').home.notice,'Task sent back to To do. The assignee will get a mention in its thread.');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
  archive=open('archive','UME','assigned').openModal.view;save(archive,'archived','UME','VSTOP');task=store.get(task.id,'TTEST');
  assert.equal(open('status','UOTHER','mine').openModal,undefined);assert.equal(task.status,'todo');store.close();
 });

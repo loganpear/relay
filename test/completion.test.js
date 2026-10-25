@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TaskStore } from '../src/tasks.js';
 import { taskMessage, flushOutbox, SlackClient } from '../src/slack.js';
+import { handleInteraction } from '../src/server.js';
 
 const input = { teamId: 'TTEST', channelId: 'CTEST', title: 'Finish the task', assigneeId: 'UASSIGNEE', creatorId: 'UCREATOR' };
 function complete(store, task, receiptKey = 'completion') {
@@ -19,7 +20,13 @@ test('cards have only To do / Done and one Mark done button', () => {
   assert.equal(actions[0].text.text, 'Mark done');
   assert.equal(actions[0].action_id, 'task_complete');
   assert.doesNotMatch(JSON.stringify(card), /Reviewer|Ready for review|Start task|Approve/);
-  assert.equal(taskMessage(complete(store, task)).blocks.find(b => b.type === 'actions').elements[0].text.text, 'Reopen');
+  const done = complete(store, task);
+  assert.equal(taskMessage(done).blocks.some(b => b.type === 'actions'), false);
+  assert.match(JSON.stringify(taskMessage(done)), /assigner can send it back to To do from Relay Home/);
+  // Reopen buttons on cards posted before this change point to Relay Home and change nothing.
+  const oldReopen = { type: 'block_actions', team: { id: 'TTEST' }, channel: { id: 'CTEST' }, user: { id: 'UCREATOR' }, actions: [{ action_id: 'task_reopen', value: JSON.stringify({ id: done.id, version: done.version }) }] };
+  assert.throws(() => handleInteraction(store, oldReopen, 'old-card'), /Relay Home/);
+  assert.equal(store.get(done.id, 'TTEST').status, 'done');
   store.close();
 });
 
@@ -61,10 +68,58 @@ test('failed notification retries independently without losing completion or dup
   assert.equal(store.pendingNotifications().length, 0); store.close();
 });
 
+test('sending work back mentions the assignee in the task thread and replaces an unsent completion mention', async () => {
+  const store = new TaskStore(); let task = store.create(input);
+  const calls = [];
+  const client = new SlackClient('test', async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return { ok: true, status: 200, json: async () => ({ ok: true, ts: url.endsWith('chat.update') ? JSON.parse(options.body).ts : `200.${calls.length}` }) };
+  });
+  const sendBack = done => store.transition({ id: done.id, teamId: 'TTEST', channelId: 'CTEST', actorId: 'UCREATOR', action: 'reopen', version: done.version });
+  await flushOutbox(store, client);
+  // Sent back before the completion mention goes out: only the send-back mention is posted.
+  task = sendBack(complete(store, task));
+  await flushOutbox(store, client); await flushOutbox(store, client);
+  const mentions = calls.filter(c => c.url.endsWith('chat.postMessage') && c.body.thread_ts);
+  assert.equal(mentions.length, 1);
+  assert.equal(mentions[0].body.thread_ts, '200.1');
+  assert.equal(mentions[0].body.reply_broadcast, false);
+  assert.match(mentions[0].body.text, /^<@UASSIGNEE> — <@UCREATOR> sent task #\d+ back to To do/);
+  assert.equal(store.pendingNotifications().length, 0); store.close();
+});
+
+test('reassigning active work mentions only the latest new assignee in the task thread', async () => {
+  const store = new TaskStore(); let task = store.create(input);
+  const calls = [];
+  const client = new SlackClient('test', async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return { ok: true, status: 200, json: async () => ({ ok: true, ts: url.endsWith('chat.update') ? JSON.parse(options.body).ts : `300.${calls.length}` }) };
+  });
+  const reassign = (assigneeId, actorId = 'UCREATOR') => (task = store.manage({ id: task.id, teamId: 'TTEST', channelId: 'CTEST', actorId, version: task.version, action: 'edit', changes: { title: task.title, assigneeId } }));
+  const mentions = () => calls.filter(c => c.url.endsWith('chat.postMessage') && c.body.thread_ts && /assigned task/.test(c.body.text));
+  await flushOutbox(store, client);
+  // Two quick reassignments: the unsent mention for the first new assignee is dropped.
+  reassign('UFIRST'); reassign('USECOND');
+  await flushOutbox(store, client); await flushOutbox(store, client);
+  assert.equal(mentions().length, 1);
+  assert.equal(mentions()[0].body.thread_ts, '300.1');
+  assert.match(mentions()[0].body.text, /^<@USECOND> — <@UCREATOR> assigned task #\d+ to you\./);
+  // Saving with the same assignee, assigning to yourself, or reassigning finished work sends nothing.
+  store.manage({ id: task.id, teamId: 'TTEST', channelId: 'CTEST', actorId: 'UCREATOR', version: task.version, action: 'edit', changes: { title: 'Renamed', assigneeId: 'USECOND' } });
+  task = store.get(task.id, 'TTEST'); reassign('UCREATOR');
+  reassign('UTHIRD'); task = store.transition({ id: task.id, teamId: 'TTEST', channelId: 'CTEST', actorId: 'UTHIRD', action: 'complete', version: task.version });
+  const before = mentions().length;
+  reassign('UFOURTH');
+  await flushOutbox(store, client); await flushOutbox(store, client);
+  assert.equal(mentions().length, before);
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM completion_notifications WHERE kind='assign' AND assigneeId IN ('UCREATOR','UFOURTH')").get().n, 0);
+  store.close();
+});
+
 test('no completion mention is sent before the task card is delivered', async () => {
   const store = new TaskStore(); const task = store.create(input); complete(store, task);
   let notified = false;
-  await flushOutbox(store, { deliver: async () => { throw new Error('not_in_channel'); }, notifyCompletion: async () => { notified = true; } });
+  await flushOutbox(store, { deliver: async () => { throw new Error('internal_error'); }, notifyCompletion: async () => { notified = true; } });
   assert.equal(notified, false);
   assert.equal(store.get(task.id, 'TTEST').status, 'done'); store.close();
 });

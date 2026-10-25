@@ -37,7 +37,7 @@ Fill in these four settings:
 | `SLACK_BOT_TOKEN` | Slack app settings → **OAuth & Permissions** → **Bot User OAuth Token**, beginning `xoxb-`. It appears after installation. |
 | `SLACK_APP_TOKEN` | **Basic Information → App-Level Tokens**. Use the existing token with **connections:write**, or generate one with only that scope. It begins `xapp-`. |
 | `SLACK_TEAM_ID` | Your workspace ID: the `T…` part of `https://app.slack.com/client/T…` when you open Slack in a browser. |
-| `SLACK_ALLOWED_CHANNEL_ID` | The private test channel's ID from step 2. |
+| `SLACK_ALLOWED_CHANNEL_ID` | Optional. The private test channel's ID from step 2. While set, /task and card buttons only work there; remove it to use Relay in any channel. Relay Home works either way. |
 
 In app settings, check that **Socket Mode** and **Interactivity & Shortcuts** are enabled. The supplied manifest enables both, plus the Home tab and its app_home_opened event. This connection does not need a public website or a signing secret.
 
@@ -71,8 +71,9 @@ Open **Relay → Home** to see both **Assigned to you** and **Assigned by you** 
 - **Commands aren't listed:** check that the app is installed and the manifest includes `/task` and `/tasks`.
 - **Commands time out:** make sure Relay is still running and connected. Check the workspace and channel IDs in `.env`.
 - **No task card appears:** add Relay to the private channel using **Channel details → Agents & apps**.
-- **Relay says testing is restricted:** use the channel configured in `SLACK_ALLOWED_CHANNEL_ID`.
-- **A button is unavailable:** only the assignee can mark an unfinished task done.
+- **Relay says testing is restricted:** use the channel configured in `SLACK_ALLOWED_CHANNEL_ID`, or remove that setting to allow every channel.
+- **No card appears for a task made in Relay Home:** that is expected. Home tasks have no channel card; Relay notifies people by direct message.
+- **A button is unavailable:** only the assignee can mark an unfinished task done. Reopening moved to Relay Home, where the assigner sends Done work back to To do.
 
 For a persistent server setup and technical details, see the [developer guide](DEVELOPMENT.md).
 

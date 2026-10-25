@@ -27,7 +27,7 @@ Open **Relay → Home**. **Current** shows two tables:
 
 Switch to **Past** to find completed and archived work. Both Past tables include **Created at**, with the original creation date, year, and time in Eastern time. Each table starts with the five newest matching tasks. **Show more** expands that list to 20 rows, with **Previous / Next** for older records. Refresh keeps your selected view and page. Automatic seven-day moves are applied when Home opens or refreshes.
 
-Only assignees can change **🔲 To do / ✅ Done** in Current. Status is read-only in Past; move work back to Current before changing its status. Completing work mentions the assigner in the task’s channel thread. Archiving **Done** only affects the assigner’s list. Archiving **To do** stops the work for both people: it moves to both Past lists with **Archive** set to **Archived**, and cannot be completed until the assigner sets it back to **Active**. Archiving sends no completion notification. Setting **Archived** back to **Active** reactivates an archived To do task for both people; for completed tasks it gives the assigner another seven days in Current without changing status.
+In Current, the assignee marks **🔲 To do** work **✅ Done** under Assigned to you, and the assigner can send **✅ Done** work back to **🔲 To do** under Assigned by you. Status is read-only in Past and while archived; set work back to **Active** before sending it back. Completing work mentions the assigner in the task’s channel thread; sending it back to To do mentions the assignee there. Archiving **Done** only affects the assigner’s list. Archiving **To do** stops the work for both people: it moves to both Past lists with **Archive** set to **Archived**, and cannot be completed until the assigner sets it back to **Active**. Archiving sends no completion notification. Setting **Archived** back to **Active** reactivates an archived To do task for both people; for completed tasks it gives the assigner another seven days in Current without changing status.
 
 Click a **task name** for requirements and notes (plus attached images when uploads are enabled). Details opened from **Assigned to you** are read-only, including self-assigned tasks. The assigner can open it under **Assigned by you** and choose **Edit**. The **Due** cell there also opens the deadline editor.
 
@@ -49,7 +49,7 @@ Choose Alex from Slack's mention suggestions. Relay posts a task card in the cha
 
 **To do → Done**
 
-The assignee clicks **Mark done**. Relay updates the card and posts a completion message in its thread, mentioning the person who assigned it. No review or approval step is needed. Slack delivers mention alerts according to the recipient’s notification settings.
+The assignee clicks **Mark done**. Done cards have no button; to reopen work, the assigner sends it back to To do from Relay Home. Relay updates the card and posts a completion message in its thread, mentioning the person who assigned it. Tasks created in Relay Home have no channel card: Relay sends these notices as direct messages instead. If a card is deleted, or Relay can’t post in the channel where /task was used, the task keeps working without a card and notices go by direct message. No review or approval step is needed. Slack delivers mention alerts according to the recipient’s notification settings.
 
 ## Find what needs your attention
 
@@ -88,7 +88,7 @@ Both flags are optional and can appear in either order. Put details in double qu
 
 Relay requests permission to receive its commands, post its task cards, and read files available to the app for task image attachments. It does not request permission to read channel history or your workspace's user directory.
 
-Only the assignee can complete or reopen a task. The assigner can edit, archive, and reactivate it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace, and local testing is restricted to one configured channel.
+Only the assignee can mark a task done. The assigner can send a Done task back to To do, and edit, archive, and reactivate it. Tasks and activity are stored by whoever runs Relay. The current release connects to one workspace. Setting SLACK_ALLOWED_CHANNEL_ID limits /task and card buttons to one test channel; leave it unset to use Relay in any channel.
 
 ## Building on Relay
 

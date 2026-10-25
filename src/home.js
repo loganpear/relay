@@ -20,12 +20,12 @@ export function homeState(value = {}) {
 export function viewState(payload) {
   try { return homeState(JSON.parse(payload.view?.private_metadata || '{}')); } catch { return homeState(); }
 }
-export function homeRequest(teamId, allowedChannelId, payload, event = false) {
+export function homeRequest(teamId, payload, event = false) {
   if (event) {
-    if (!allowedChannelId || payload.team_id !== teamId || payload.event?.type !== 'app_home_opened' || !['home','messages'].includes(payload.event.tab) || !/^[UW][A-Z0-9]+$/.test(payload.event.user ?? '')) return null;
+    if (payload.team_id !== teamId || payload.event?.type !== 'app_home_opened' || !['home','messages'].includes(payload.event.tab) || !/^[UW][A-Z0-9]+$/.test(payload.event.user ?? '')) return null;
     return { userId: payload.event.user, ...homeState() };
   }
-  if (payload.team?.id !== teamId || payload.type !== 'block_actions' || payload.view?.type !== 'home' || !/^[UW][A-Z0-9]+$/.test(payload.user?.id ?? '') || !allowedChannelId || payload.actions?.length !== 1) return null;
+  if (payload.team?.id !== teamId || payload.type !== 'block_actions' || payload.view?.type !== 'home' || !/^[UW][A-Z0-9]+$/.test(payload.user?.id ?? '') || payload.actions?.length !== 1) return null;
   const action = payload.actions[0];
   const state = viewState(payload);
   const match = /^home_(expand|collapse|prev|next)_(mine|assigned)$/.exec(action.action_id);
@@ -40,13 +40,13 @@ export function homeRequest(teamId, allowedChannelId, payload, event = false) {
   return { userId: payload.user.id, ...homeState(state) };
 }
 const cellAction = (action, label, mode, task) => ({ type:'action_cell',element:button(`${action}:${mode}:${task.id}`,label,{id:task.id,version:task.version}),fallback:text(label) });
-export function taskHome(store, { teamId, channelId, userId, notice, completionTitle, ...input }) {
+export function taskHome(store, { teamId, userId, notice, completionTitle, ...input }) {
   const state = homeState(input);
   const blocks = [{type:'actions',elements:[button('home_current','Current',{},state.period==='current'?{style:'primary'}:{}),button('home_past','Past',{},state.period==='past'?{style:'primary'}:{})]}];
   if(completionTitle)blocks.push({type:'section',text:{type:'plain_text',text:`✅ “${completionTitle}” marked Done and moved to Past. The assigner will receive a completion notification.`},accessory:button('home_view_past','View Past',{})});
   for (const mode of ['mine','assigned']) {
     const expanded = state[`${mode}Expanded`];
-    const data = store.personalPage({teamId,channelId,userId,direction:mode,period:state.period,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
+    const data = store.personalPage({teamId,userId,direction:mode,period:state.period,size:expanded?20:5,page:state[`${mode}Page`],recentFirst:true});
     state[`${mode}Page`] = data.page;
     const title = mode === 'mine' ? 'Assigned to you' : 'Assigned by you';
     const showManagement = mode === 'assigned';
@@ -55,10 +55,11 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     else {
       blocks.push({type:'data_table',caption:`${title} · ${data.total}`,page_size:expanded?20:5,rows:[headers.map(text),...data.tasks.map(task=>{
         const canToggle = state.period === 'current' && mode === 'mine' && task.assigneeId === userId && !task.deletedAt && !(task.status==='todo'&&task.archivedAt);
+        const canSendBack = state.period === 'current' && mode === 'assigned' && task.creatorId === userId && task.status === 'done' && !isTaskArchived(task);
         const due = formatDue(task,{markOverdue:true});
         const taskLabel = `#${task.id} · ${task.title}`;
         return [cellAction('ui_details',taskLabel.length>75?taskLabel.slice(0,72)+'…':taskLabel,mode,task),person(mode==='mine'?task.creatorId:task.assigneeId),showManagement && state.period==='current' && !task.deletedAt ? cellAction('ui_due',task.dueDate?due:'Set due date',mode,task) : text(due),
-          canToggle ? cellAction('ui_choose_status',task.status==='todo'?'▾ 🔲 To do':'▾ ✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
+          canToggle || canSendBack ? cellAction('ui_choose_status',task.status==='todo'?'▾ 🔲 To do':'▾ ✅ Done',mode,task) : text(task.status==='done'?'✅ Done':'🔲 To do'),
           ...(showManagement ? [cellAction('ui_choose_archive',isTaskArchived(task)?'▾ Archived':'▾ Active',mode,task)] : []),
           ...(state.period==='past'?[createdCell(task.createdAt)]:[])];
       })]});
@@ -74,10 +75,10 @@ export function taskHome(store, { teamId, channelId, userId, notice, completionT
     blocks.push({type:'divider'});
   }
   if(notice&&!completionTitle)blocks.push(section(notice));
-  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · <#${channelId}> · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or an editable Status or Archive cell to choose a value. Only assignees can change status. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
+  blocks.push({type:'context',elements:[{type:'mrkdwn',text:`Private to you · ${dueTimezoneLabel} · Click a task name for details, a due date in Assigned by you to change it, or an editable Status or Archive cell to choose a value. Assignees mark tasks done; assigners can send Done tasks back to To do. Done stays Current for the assigner for seven days. Archiving To do stops the task for both people.`}]},
     {type:'actions',elements:[button('ui_new','＋ New task',{}, {style:'primary'}),button('home_refresh','Refresh',{})]});
   return {type:'home',callback_id:'relay_task_home',private_metadata:JSON.stringify(state),blocks};
 }
-export async function publishTaskHome(client,store,{teamId,channelId,...request}){
-  return client.call('views.publish',{user_id:request.userId,view:taskHome(store,{teamId,channelId,...request})});
+export async function publishTaskHome(client,store,{teamId,...request}){
+  return client.call('views.publish',{user_id:request.userId,view:taskHome(store,{teamId,...request})});
 }
