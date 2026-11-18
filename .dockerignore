@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+data
+local
+assets
+node_modules
+AGENT_LOG.md
+*.sqlite*
+.DS_Store

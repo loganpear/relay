@@ -21,8 +21,8 @@ test('Current shows unfinished assigned-to work and keeps creation at the bottom
  assert.equal(mine.rows[2][3].element.text.text,'▾ 🔲 To do');
  assert.deepEqual(assigned.rows.slice(1).map(r=>r[0].element?.text.text??r[0].text),['#4 · Self assigned','#3 · Delegated']);
  assert.equal(mine.rows[0].length,4);assert.ok(mine.rows.slice(1).every(row=>row.length===4));
- assert.equal(assigned.rows[0][4].text,'Archive');assert.equal(assigned.rows[1][4].element.text.text,'▾ Active');assert.equal(assigned.rows[1][3].type,'raw_text');
- assert.deepEqual(view.blocks.at(-1).elements.map(e=>e.action_id),['ui_new','home_refresh']);
+ assert.equal(assigned.rows[0][4].text,'Archive');assert.equal(assigned.rows[1][4].element.text.text,'▾ Active');assert.equal(assigned.rows[1][3].element.text.text,'▾ 🔲 To do');
+ assert.deepEqual(view.blocks.at(-1).elements.map(e=>e.action_id),['ui_new','home_refresh','ui_reminders']);
  assert.doesNotMatch(JSON.stringify(view),/Wrong workspace|home_select|home_filter|Trash/);store.close();
 });
 test('Independent expansion pages all older records and collapses to the newest five',()=>{
@@ -30,6 +30,7 @@ test('Independent expansion pages all older records and collapses to the newest 
  for(let i=0;i<7;i++)store.create({...base,creatorId:'UME',assigneeId:'UOTHER',title:`Delegated ${i}`});
  const first=taskHome(store,context);assert.equal(tables(first)[0].rows.length,6);assert.equal(tables(first)[1].rows.length,6);
  assert.equal(tables(first)[0].rows[1][0].element.text.text,'#47 · Task 46');
+ assert.deepEqual(actions(first).filter(e=>e.action_id?.startsWith('home_expand')).map(e=>e.text.text),['Show 42 more','Show 2 more']);
  const expanded=homeRequest('TTEST',action('home_expand_mine'));
  assert.equal(expanded.mineExpanded,true);assert.equal(expanded.assignedExpanded,false);
  const view=taskHome(store,{...context,...expanded});assert.equal(tables(view)[0].rows.length,21);assert.equal(tables(view)[1].rows.length,6);

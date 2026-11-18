@@ -60,9 +60,9 @@ test('Old delete controls archive safely and the UI only offers archive terminol
  assert.equal(taskMessage(task).blocks.some(b=>b.type==='actions'),false);
  handleAppUi(store,config,action('ui_restore',select(task)),'legacy-restore');task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(store.history(task.id).at(-1).action,'unarchive');store.close();
 });
-test('Only the assignee marks done, only the assigner sends it back, and the task can be completed again',()=>{
+test('Either person marks done, only the assigner sends it back, and the other person is mentioned',()=>{
  const store=new TaskStore();let task=store.create(base);
- assert.throws(()=>store.transition({...base,id:task.id,actorId:'UME',version:0,action:'complete'}));
+ assert.throws(()=>store.transition({...base,id:task.id,actorId:'USTRANGER',version:0,action:'complete'}),/assignee or assigner/);
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:0,action:'complete'});
  store.notificationDelivered(store.pendingNotifications()[0]?.notificationId??1,'sent');
  assert.throws(()=>store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'reopen'}),/assigner/);
@@ -70,6 +70,10 @@ test('Only the assignee marks done, only the assigner sends it back, and the tas
  assert.equal(task.status,'todo');
  task=store.transition({...base,id:task.id,actorId:'UOTHER',version:task.version,action:'complete'});
  assert.equal(task.status,'done');assert.equal(store.db.prepare('SELECT count(*) AS n FROM completion_notifications').get().n,2);
+ task=store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'reopen'});
+ task=store.transition({...base,id:task.id,actorId:'UME',version:task.version,action:'complete'});
+ assert.equal(task.status,'done');assert.equal(store.history(task.id).at(-1).actorId,'UME');
+ assert.deepEqual(store.db.prepare('SELECT kind,assigneeId FROM completion_notifications WHERE sentTs IS NULL').all().map(n=>[n.kind,n.assigneeId]),[['closed','UOTHER']]);
  store.close();
 });
 test('Inline row controls respect ownership and carry independent task identities',()=>{
@@ -108,15 +112,16 @@ test('Previously published dropdowns remain safe during the table rollout',()=>{
  assert.match(handleAppUi(store,config,choose('todo'),'assignee-reopen').home.notice,/assigner/);
  assert.equal(store.get(task.id,'TTEST').status,'done');
  handleAppUi(store,config,choose('todo','UME'),'reopen');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
- assert.match(handleAppUi(store,config,choose('done','UME'),'forged').home.notice,/assignee/);assert.equal(store.get(task.id,'TTEST').status,'todo');
+ assert.match(handleAppUi(store,config,choose('done','USTRANGER'),'forged').home.notice,/your tasks/);assert.equal(store.get(task.id,'TTEST').status,'todo');
  handleAppUi(store,config,choose('todo'),'noop');assert.equal(store.get(task.id,'TTEST').version,2);
+ assert.match(handleAppUi(store,config,choose('done','UME'),'assigner-done').home.notice,/assignee will get a mention/);assert.equal(store.get(task.id,'TTEST').status,'done');task=store.get(task.id,'TTEST');
  assert.match(handleAppUi(store,config,choose('invalid'),'invalid').home.notice,/Choose/);store.close();
 });
 
-test('Assigners can send Done work back from Assigned by you, but not once archived, and old assignee buttons cannot reopen',()=>{
+test('Assigners can change To do and Done from Assigned by you, but not once archived, and old assignee buttons cannot reopen',()=>{
  const store=new TaskStore();let task=store.create(base);
  const ownerRow=period=>taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UME',period}).blocks.find(b=>b.type==='data_table'&&b.caption.startsWith('Assigned by you')).rows[1];
- assert.equal(ownerRow('current')[3].type,'raw_text');
+ assert.equal(ownerRow('current')[3].element.text.text,'▾ 🔲 To do');
  task=store.transition({...base,id:task.id,actorId:'UOTHER',action:'complete'});
  const row=ownerRow('current');
  assert.equal(row[3].element.action_id.split(':')[0],'ui_choose_status');assert.equal(row[3].element.text.text,'▾ ✅ Done');
@@ -227,10 +232,11 @@ test('Table choice windows save explicit status and archive values with role and
  const status=open('status','UOTHER','mine').openModal.view;
  assert.deepEqual(status.blocks[1].element.options.map(o=>o.value),['todo','done']);
  assert.equal(status.blocks[1].element.initial_option.value,'todo');assert.equal(store.get(task.id,'TTEST').status,'todo');
- assert.equal(open('status','UME','assigned').openModal,undefined);
+ assert.match(JSON.stringify(open('status','UME','assigned').openModal.view),/Choose Done to mark it finished/);
+ assert.equal(open('status','USTRANGER','assigned').openModal,undefined);
  assert.equal(open('archive','UOTHER','assigned').openModal,undefined);
  assert.equal(save(status,'invalid','UOTHER','VBAD').ackPayload.response_action,'errors');
- assert.equal(save(status,'done','UME','VFORGED').ackPayload.response_action,'errors');
+ assert.equal(save(status,'done','USTRANGER','VFORGED').ackPayload.response_action,'errors');
  assert.equal(save(status,'todo','UOTHER','VNOOP').ackPayload.response_action,undefined);assert.equal(store.get(task.id,'TTEST').version,0);
  const completed=save(status,'done','UOTHER','VDONE');assert.equal(completed.home.completionTitle,task.title);
  save(status,'done','UOTHER','VDONE');task=store.get(task.id,'TTEST');assert.equal(task.version,1);assert.equal(task.status,'done');
@@ -243,7 +249,7 @@ test('Table choice windows save explicit status and archive values with role and
  assert.equal(save(archive,'active','UME','VACTIVE').home.notice,undefined);task=store.get(task.id,'TTEST');assert.equal(task.archivedAt,null);assert.equal(task.status,'done');
  assert.equal(open('status','UOTHER','mine').openModal,undefined);
  const sendBack=open('status','UME','assigned').openModal.view;assert.match(JSON.stringify(sendBack),/send this task back/);
- assert.equal(save(sendBack,'todo','UME','VREOPEN').home.notice,'Task sent back to To do. The assignee will get a mention in its thread.');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
+ assert.equal(save(sendBack,'todo','UME','VREOPEN').home.notice,'Task sent back to To do. The assignee will get a mention.');task=store.get(task.id,'TTEST');assert.equal(task.status,'todo');
  archive=open('archive','UME','assigned').openModal.view;save(archive,'archived','UME','VSTOP');task=store.get(task.id,'TTEST');
  assert.equal(open('status','UOTHER','mine').openModal,undefined);assert.equal(task.status,'todo');store.close();
 });

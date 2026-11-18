@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { labels, isTaskArchived, formatDue, dueTimezoneLabel } from './tasks.js';
+import { labels, isTaskArchived, formatDue, dueTimezoneLabel, validTimeZone } from './tasks.js';
 
 export function verifySlack(raw, headers, secret, now = Date.now()) {
   const timestamp = headers['x-slack-request-timestamp'];
@@ -9,6 +9,9 @@ export function verifySlack(raw, headers, secret, now = Date.now()) {
   return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
 export const escapeSlack = text => String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+// Slack renders a timed deadline in each reader's own time zone; the text after | is the fallback for old clients.
+const dueText = task => !task.dueDate ? 'No deadline' : task.dueAt ? `<!date^${task.dueAt}^{date_short_pretty} at {time}|${formatDue(task)} ${dueTimezoneLabel}>` : formatDue(task);
 
 export function taskMessage(task) {
   const choices = [];
@@ -21,7 +24,7 @@ export function taskMessage(task) {
       { type: 'mrkdwn', text: `*Archived*\n${isTaskArchived(task)?'Archived':'Active'}` },
       { type: 'mrkdwn', text: `*Assigned to*\n<@${task.assigneeId}>` },
       { type: 'mrkdwn', text: `*Assigned by*\n<@${task.creatorId}>` },
-      { type: 'mrkdwn', text: `*Due*\n${task.dueDate ? formatDue(task)+' ('+dueTimezoneLabel+')' : 'No deadline'}` }
+      { type: 'mrkdwn', text: `*Due*\n${dueText(task)}` }
     ] }
   ];
   if (choices.length) blocks.push({ type: 'actions', elements: choices.map(([action, text]) => ({
@@ -29,16 +32,20 @@ export function taskMessage(task) {
     value: JSON.stringify({ id: task.id, version: task.version }),
     ...(action === 'complete' ? { style: 'primary' } : {})
   })) });
-  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Archived. The assigner can move it to Current again.' : task.status==='todo'&&task.archivedAt?'Relay · Archived. Work is no longer required. The assigner can move it to Current to reactivate it.':task.status === 'done' ? 'Relay · Done. The assigner can send it back to To do from Relay Home.' : 'Relay · The assignee marks this done. The assigner gets a completion mention in this task’s thread.' }] });
+  blocks.push({ type: 'context', elements: [{ type: 'plain_text', text: task.deletedAt ? 'Relay · Archived. The assigner can move it to Current again.' : task.status==='todo'&&task.archivedAt?'Relay · Archived. Work is no longer required. The assigner can move it to Current to reactivate it.':task.status === 'done' ? 'Relay · Done. The assigner can send it back to To do from Relay Home.' : 'Relay · Either person can mark this done; the other gets a mention in this task’s thread.' }] });
   return { text: `Task #${task.id}: ${task.title} — ${labels[task.status]}${isTaskArchived(task)?' · Archived':''}`, blocks };
 }
+
+const formMethods = new Set(['users.info']);
 
 export class SlackClient {
   constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; }
   async call(method, payload) {
+    // Slack's read methods such as users.info ignore JSON bodies, so they are sent form-encoded.
+    const form = formMethods.has(method);
     const response = await this.fetcher(`https://slack.com/api/${method}`, {
-      method: 'POST', headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(8000)
+      method: 'POST', headers: { authorization: `Bearer ${this.token}`, 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' },
+      body: form ? new URLSearchParams(payload).toString() : JSON.stringify(payload), signal: AbortSignal.timeout(8000)
     });
     if (response.status === 429) {
       const error = new Error('Slack rate limited delivery');
@@ -59,6 +66,9 @@ export class SlackClient {
   }
   async notifyCompletion(task) {
     return this.mention(task, task.creatorId, task.assigneeId, `marked task #${task.id} *Done*.`);
+  }
+  async notifyClosed(task) {
+    return this.mention(task, task.assigneeId, task.creatorId, `marked task #${task.id} *Done*.`);
   }
   async notifySentBack(task) {
     return this.mention(task, task.assigneeId, task.creatorId, `sent task #${task.id} back to *To do*.`);
@@ -81,10 +91,19 @@ export class SlackClient {
   }
 }
 
+// Learns someone's Slack time zone (needs the users:read scope). Until it can, Relay keeps the last known or default zone.
+export async function learnTimeZone(store, client, userId) {
+  if (!userId || !client?.call || !store.timeZoneDue(userId)) return;
+  try { const { user } = await client.call('users.info', { user: userId }); store.saveTimeZone(userId, validTimeZone(user?.tz) ? user.tz : null); }
+  catch { store.saveTimeZone(userId, null); }
+}
+// Waits briefly for a time zone so a slash command can still be answered within Slack's three seconds.
+export const learnTimeZoneQuickly = (store, client, userId) => Promise.race([learnTimeZone(store, client, userId), new Promise(resolve => setTimeout(resolve, 1500).unref())]);
+
 // Slack errors meaning the card can never be posted or updated (deleted, or Relay can't post there).
 const lostCard = new Set(['message_not_found', 'cant_update_message', 'edit_window_closed', 'channel_not_found', 'not_in_channel', 'is_archived', 'restricted_action', 'thread_not_found']);
 // Slack errors meaning a DM can never reach the person.
-const unreachableUser = new Set(['user_not_found', 'user_disabled', 'account_inactive', 'cannot_dm_bot', 'channel_not_found', 'not_in_channel', 'restricted_action']);
+export const unreachableUser = new Set(['user_not_found', 'user_disabled', 'account_inactive', 'cannot_dm_bot', 'channel_not_found', 'not_in_channel', 'restricted_action']);
 
 export async function flushOutbox(store, client) {
   for (const item of store.pending()) {
@@ -96,7 +115,7 @@ export async function flushOutbox(store, client) {
     }
   }
   for (const task of store.pendingNotifications()) {
-    try { store.notificationDelivered(task.notificationId, await (task.kind === 'reopen' ? client.notifySentBack(task) : task.kind === 'assign' ? client.notifyAssigned(task) : client.notifyCompletion(task))); }
+    try { store.notificationDelivered(task.notificationId, await (task.kind === 'reopen' ? client.notifySentBack(task) : task.kind === 'assign' ? client.notifyAssigned(task) : task.kind === 'closed' ? client.notifyClosed(task) : client.notifyCompletion(task))); }
     catch (error) {
       // A lost thread falls back to a DM on the next flush; an unreachable person is not retried.
       if (task.messageTs && lostCard.has(error.message)) store.detachCard(task.id);

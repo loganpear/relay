@@ -18,7 +18,7 @@ This guide is for the workspace owner or technical teammate setting up Relay. On
 4. Open `slack-manifest.socket.json` from this repository in a text editor. Copy its contents into Slack's **JSON** manifest field.
 5. Review the app named **Relay** and create it. Install it to your workspace if Slack does not install it during creation.
 
-Relay needs **commands** and **chat:write** permissions. If your workspace requires approval, ask its owner to approve the app.
+Relay needs **commands**, **chat:write**, and **users:read** permissions. users:read lets Relay read each person's time zone; without it, deadlines fall back to Eastern time. Adding it to an existing install requires reinstalling the app. If your workspace requires approval, ask its owner to approve the app.
 
 ## 2. Choose a private test channel
 
@@ -57,12 +57,13 @@ No package installation is needed. Wait for **Relay connected to Slack**. Leave 
 
 In your private test channel:
 
-1. Open **Relay → Home → ＋ New task**. Enter a title, select yourself, and click **Create task**.
-2. Click the task’s **To do** status directly in its Home table row. It changes to **Done** in place.
-3. Open the task’s card in the test channel and check its thread for the completion mention.
-4. Type `/tasks all` to see the saved task.
+1. Type `/task @yourself Test Relay --due tomorrow` and select yourself from Slack's mention suggestions.
+2. Check that Relay posts a task card in that channel. Click **Mark done** on the card and verify that it updates to **Done**.
+3. Type `/tasks all` to see the saved task.
+4. Open **Relay → Home → ＋ New task** and make a second task for yourself. Home-created tasks stay in the app; they do not post channel cards.
+5. In the Home table, click the task's **To do** cell, select **Done**, and click **Save**. The task moves to Past under Assigned to you.
 
-Then repeat with a teammate: assign them a task, have them mark it done, and check the completion mention you receive. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
+Then repeat with a consenting test teammate: assign them a task with `/task`, have them mark it done, and check the completion mention in the card thread. For Home-created tasks, assignment and completion notices arrive by direct message. Self-assigned tasks do not notify you about your own actions. Your team can use the [everyday instructions](../README.md#your-first-task) from here.
 
 Open **Relay → Home** to see both **Assigned to you** and **Assigned by you** tables immediately. Each shows five recent tasks, with **Show more** for longer lists. The tables are private to the person opening them.
 
@@ -73,10 +74,10 @@ Open **Relay → Home** to see both **Assigned to you** and **Assigned by you** 
 - **No task card appears:** add Relay to the private channel using **Channel details → Agents & apps**.
 - **Relay says testing is restricted:** use the channel configured in `SLACK_ALLOWED_CHANNEL_ID`, or remove that setting to allow every channel.
 - **No card appears for a task made in Relay Home:** that is expected. Home tasks have no channel card; Relay notifies people by direct message.
-- **A button is unavailable:** only the assignee can mark an unfinished task done. Reopening moved to Relay Home, where the assigner sends Done work back to To do.
+- **A button is unavailable:** only the assignee or assigner can mark an unfinished task done. Reopening moved to Relay Home, where the assigner sends Done work back to To do.
 
 For a persistent server setup and technical details, see the [developer guide](DEVELOPMENT.md).
 
 ### Task images
 
-Both app manifests include the `files:read` bot scope required by Slack’s native image uploader. After installing or reinstalling with that permission, set `SLACK_IMAGE_UPLOADS=true` and restart Relay. Until then, text details remain available and the image picker stays hidden. Images stay hosted in Slack; Relay stores their file IDs rather than copying image bytes or creating public links.
+Image uploads are optional and disabled by default. To use them, add the `files:read` bot scope to your app, install or reinstall with that permission, then set `SLACK_IMAGE_UPLOADS=true` and restart Relay. Until then, text details remain available and the image picker stays hidden. Images stay hosted in Slack; Relay stores their file IDs rather than copying image bytes or creating public links.

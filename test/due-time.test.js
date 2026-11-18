@@ -9,9 +9,11 @@ import {taskMessage} from '../src/slack.js';
 const base={teamId:'TTEST',channelId:'CTEST',creatorId:'UME',assigneeId:'UOTHER',title:'Deadline check'};
 test('Due display is MM/DD h:mm AM/PM in both Home and channel cards',()=>{
  const store=new TaskStore();const task=store.create({...base,dueDate:'2026-11-06',dueTime:'09:05'});
- assert.equal(formatDue(task),'11/06 9:05 AM');assert.equal(formatDue({...task,dueTime:'00:00'}),'11/06 12:00 AM');
- assert.equal(formatDue({...task,dueTime:'12:00'}),'11/06 12:00 PM');assert.equal(formatDue({...task,dueTime:'17:30'}),'11/06 5:30 PM');
- assert.equal(formatDue({...task,dueTime:null}),'11/06');assert.equal(formatDue({...task,dueDate:null}),'—');
+ // Plain objects without a stored moment are read as Eastern, like older rows.
+ const at=dueTime=>({dueDate:'2026-11-06',dueTime,status:'todo'});
+ assert.equal(formatDue(task),'11/06 9:05 AM');assert.equal(formatDue(at('00:00')),'11/06 12:00 AM');
+ assert.equal(formatDue(at('12:00')),'11/06 12:00 PM');assert.equal(formatDue(at('17:30')),'11/06 5:30 PM');
+ assert.equal(formatDue(at(null)),'11/06');assert.equal(formatDue({...at('09:05'),dueDate:null}),'—');
  const view=taskHome(store,{teamId:'TTEST',channelId:'CTEST',userId:'UOTHER'});
  assert.match(view.blocks.find(b=>b.type==='data_table').rows[1][2].text,/11\/06 9:05 AM$/);
  assert.match(JSON.stringify(taskMessage(task)),/11\/06 9:05 AM/);store.close();
@@ -53,5 +55,19 @@ test('Short slash deadlines infer the next future year in Eastern time',()=>{
  assert.equal(parse('02/29 12:00 AM').dueTime,'00:00');
  assert.equal(parse('11/06 12:00 pm').dueTime,'12:00');
  assert.equal(parse('12/31 11:59 PM','2027-01-01T02:00:00Z').dueDate,'2026-12-31');
- for(const value of ['02/30 05:00 PM','13/01 05:00 PM','11/06 00:30 AM','11/06 13:00 PM','11/06 05:60 PM','11/06 05:00','11/06','11/06 05:00 PM --at 12:00','11/06 05:00 PM --due 12/01 06:00 PM'])assert.throws(()=>parse(value),/due|option|hour/);
+ for(const value of ['02/30 05:00 PM','13/01 05:00 PM','11/06 00:30 AM','11/06 13:00 PM','11/06 05:60 PM','11/06 05:00 PM --at 12:00','11/06 05:00 PM --due 12/01 06:00 PM','someday'])assert.throws(()=>parse(value),/due|option|hour/);
+ assert.equal(parse('11/06 05:00').dueTime,'05:00');assert.equal(parse('11/06').dueTime,undefined);assert.equal(parse('11/06').dueDate,'2026-11-06');
+});
+
+test('Natural /task deadlines: weekdays, today/tomorrow, month names, short dates, and times alone',()=>{
+ // Saturday, October 24, 2026 at 2:00 PM Eastern.
+ const parse=deadline=>parseTask('<@UOTHER> Ship deck --due '+deadline,{now:new Date('2026-10-24T18:00:00Z')});
+ const cases={'fri 5pm':['2026-10-30','17:00'],'friday at 5:30 pm':['2026-10-30','17:30'],'sat':['2026-10-24',undefined],'sat 1pm':['2026-10-31','13:00'],'sat 3pm':['2026-10-24','15:00'],
+  'tomorrow':['2026-10-25',undefined],'tomorrow at noon':['2026-10-25','12:00'],'5pm':['2026-10-24','17:00'],'1pm':['2026-10-25','13:00'],'11/6':['2026-11-06',undefined],
+  '11/6 5pm':['2026-11-06','17:00'],'nov 6':['2026-11-06',undefined],'november 6th at 9:15am':['2026-11-06','09:15'],'11/6/27':['2027-11-06',undefined],'dec 25, 2027 8am':['2027-12-25','08:00'],'fri 17:30':['2026-10-30','17:30']};
+ for(const [deadline,[dueDate,dueTime]] of Object.entries(cases)){const task=parse(deadline);assert.equal(task.dueDate,dueDate,deadline);assert.equal(task.dueTime,dueTime,deadline);assert.equal(task.title,'Ship deck',deadline);}
+ // Words after the deadline stay in the title; title words before --due are never read as a deadline.
+ assert.deepEqual((({title,dueDate})=>({title,dueDate}))(parseTask('<@UOTHER> --due fri Ship the deck',{now:new Date('2026-10-24T18:00:00Z')})),{title:'Ship the deck',dueDate:'2026-10-30'});
+ assert.equal(parseTask('<@UOTHER> Meet at 5 --due fri',{now:new Date('2026-10-24T18:00:00Z')}).title,'Meet at 5');
+ for(const bad of ['someday','2/30','11/6 13pm','fri --due sat'])assert.throws(()=>parse(bad),/due/);
 });

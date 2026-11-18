@@ -29,9 +29,9 @@ npm test
 /tasks all
 ```
 
-Select the assignee from Slack's mention suggestions. Dates use explicit YYYY-MM-DD. Tasks have just two statuses: **To do** and **Done**. Only the assignee can click **Mark done**. Relay updates the shared card and posts a threaded completion message mentioning the assigner. No additional Slack scopes are needed.
+Select the assignee from Slack's mention suggestions. Deadlines accept natural text such as `fri 5pm`, `tomorrow`, `11/6`, or an explicit ISO date. Tasks have just two statuses: **To do** and **Done**. The assignee or the assigner can click **Mark done**; whoever did not act gets the mention. Relay updates the shared card and posts a threaded completion message mentioning the assigner. No additional Slack scopes are needed.
 
-`/tasks assigned` lists unfinished tasks created by the requester. All lists are scoped to the current channel and limited to 50 tasks. Completed tasks appear in `/tasks all`.
+`/tasks assigned` lists unfinished tasks created by the requester. Personal lists span your tasks across channels; team/all lists stay in the current channel. Lists are limited to 50 tasks. Completed tasks appear in `/tasks all`.
 
 ## Connect a Slack developer sandbox
 
@@ -47,13 +47,19 @@ For local Slack testing, add your bot token and app-level token to a private `.e
 2. Host this service behind HTTPS on a persistent Node 24 server with a writable disk. Set `HOST=0.0.0.0` for a hosted container and `DEMO_MODE=false`. No demo routes are exposed in this mode.
 3. Replace every `https://YOUR_HOST` value in `slack-manifest.json` with your HTTPS origin. Create a Slack app from this manifest inside the sandbox.
 4. Upload an app icon in Slack's Basic Information page. The manifest supplies the name, description, and background color.
-5. Install the app to the sandbox. It requests `commands` and `chat:write`: it does not read channel history or the user directory.
+5. Install the app to the sandbox. It requests `commands`, `chat:write`, and `users:read` (only to read each person's time zone): it does not read channel history.
 6. Copy `.env.example` to `.env`. Privately set the app's signing secret, bot token, and installed workspace ID. Never commit or share these values. On a host, use its private environment-variable settings.
 7. Set `DATABASE_PATH` to a file on a persistent volume. Run `npm start`.
 8. Invite `@Relay` to a test channel, then create a task. Have the assignee click Mark done. Check the task thread for the completion mention to the assigner.
 9. Restart the service and check `/tasks all` to verify persistence. Capture a screenshot of the task card for the Handshake submission.
 
 The command Request URL is `/slack/commands`; the interactivity Request URL is `/slack/actions`; the Events API Request URL is `/slack/events`. Slack's “escape channels, users, and links” option must remain enabled for both commands (set by the manifest).
+
+### Portable container deployment
+
+A `Dockerfile` is included for a host that supports a continuously running container and persistent volumes. Set the private runtime variables from `.env.example` using the host's secret settings. Mount a persistent volume at `/app/data`, use one replica, expose port 3000 behind HTTPS, and run the container's default HTTP command. `/health` is the health-check endpoint. The image excludes local credentials, task databases, and development screenshots. Do not migrate the club's test database into a public demo; use a separate sandbox app and a fresh database.
+
+For a local container check, build with `docker build -t relay .`, then supply a private env file and a named volume when starting it. Hosting services may charge for continuous compute and storage; review the provider's plan before creating a service.
 
 ## Delivery and security
 
@@ -68,7 +74,9 @@ The command Request URL is `/slack/commands`; the interactivity Request URL is `
 
 ## Current limits
 
-This is a first single-workspace build. The redesigned Slack Home was manually verified with self-assigned tasks: inline completion and reopening, editing task directions, deletion and Undo, five-row previews, expansion, collapse, and Refresh retaining expansion. Creation and due-date editing were also verified in Slack forms. The same channel card updated in place, the completion notice was delivered, and the outbound queue drained. The automated suite also covers authorization, stale edits, duplicate submissions, and delivery retries. A separate assignee account was also manually tested: the creator assigned a task in Safari, the assignee completed it in another browser, both Home views showed Done, and a single threaded completion mention reached the creator. It has no OAuth installation flow for multiple workspaces, reminders, recurring tasks, or dashboard authentication. Use one service process and one local persistent database, not multiple replicas or an ephemeral filesystem. The local board is a workflow preview, not a production dashboard.
+Relay currently supports one workspace per running instance. Automated tests cover task permissions, signed HTTP requests, duplicate submissions, lifecycle transitions, deadline parsing, time zones, reminders, delivery retries, and live Home refreshes. The local handoff records earlier two-account Slack testing; validate the deployed version in your own sandbox before release.
+
+Relay has no public multi-workspace OAuth installation flow or recurring tasks. Reminders run inside the long-lived service, so keep one instance continuously running with a persistent SQLite volume. Multiple replicas and ephemeral filesystems are unsupported. The local demo is a workflow preview, not a hosted user dashboard.
 
 Outbox retries preserve changes but cannot promise exactly-once posting if Slack accepts a new card or completion notification and the network loses the response before its timestamp is saved. Requests and receipts are currently retained indefinitely; choose retention and backup policies before wider deployment.
 
@@ -91,7 +99,7 @@ On first startup, the two-status migration preserves Done tasks, maps all other 
 
 Both manifests enable App Home and subscribe to app_home_opened without adding bot scopes. Home immediately displays two data_table blocks: the newest five tasks assigned to the viewer and the newest five they created, including self-assigned tasks. Current/Past filters apply per role. Only Assigned by you has a management-action column; only Current Assigned to you has status buttons. Past statuses are always plain text; UI handlers reject old Past buttons, dropdowns, and status-form submissions. Each list expands independently to 20 rows and pages through older work, so payload sizes stay bounded. Refresh preserves expansion and page state; reopening Home returns to five rows per list. Opening Messages also initializes Home for first-time users.
 
-Status, task details, deadline, archive, and reactivation controls use action_cell buttons. Each button carries its own task ID and version, with a unique action_id per task and list. Only the assignee can complete work, and only the assigner can send unarchived Done work back to To do. Assigned-by-you status cells are editable only for Done tasks in Current; backend authorization rejects old assignee reopen controls and archived work. Queries and mutations use the authenticated actor plus the configured workspace and channel. Legacy clients that cannot render action cells show a text fallback; channel-card controls and slash commands remain available. Publishing Home sends no channel messages.
+Status, task details, deadline, archive, and reactivation controls use action_cell buttons. Each button carries its own task ID and version, with a unique action_id per task and list. Either person can complete work, and only the assigner can send unarchived Done work back to To do. Assigned-by-you status cells are editable for unarchived tasks in Current; backend authorization rejects old assignee reopen controls and archived work. Queries and mutations use the authenticated actor plus the configured workspace and channel. Legacy clients that cannot render action cells show a text fallback; channel-card controls and slash commands remain available. Publishing Home sends no channel messages.
 
 ## Task management from Home
 
@@ -99,9 +107,9 @@ Home uses native Slack modals, users_select, and datepicker inputs. Every mutati
 
 ## Due times
 
-Deadlines store an ISO dueDate plus an optional 24-hour dueTime. Displays use MM/DD h:mm AM/PM; old date-only tasks keep a null time and display MM/DD. The form includes a native time picker. A time requires a date. TASK_TIMEZONE defaults to America/New_York and is shown in the form; set it before using Relay for a workspace. Changing it changes the interpretation of existing wall-clock deadlines. Overdue comparisons use that timezone, including its daylight-saving rules, rather than the server’s local or UTC date. Slash commands accept --due MM/DD HH:MM AM/PM and infer the next future occurrence in TASK_TIMEZONE, including leap years. Storage remains ISO date and 24-hour time. Older ISO --due YYYY-MM-DD and --at HH:MM commands remain supported for compatibility.
+Deadlines store an ISO dueDate, plus for timed deadlines the wall-clock dueTime, the zone it was entered in (dueZone), and the exact moment (dueAt, Unix seconds, UTC). Date-only deadlines keep dueTime/dueZone/dueAt null and read the same everywhere. Each person's Slack time zone comes from users.info (users:read) and is saved in user_time_zones, re-checked daily (hourly while unavailable); until it is known, TASK_TIMEZONE (default America/New_York) is used. Home, task details, forms, and /tasks show deadlines on the viewer's clock; channel cards use Slack's <!date^…> formatting so each reader sees their own time, with an Eastern fallback. Forms set the time picker to the author's zone and save it with the deadline, so re-saving never shifts the moment; editing Past work keeps the original deadline. Overdue compares dueAt with now; date-only deadlines are overdue after the date ends on the viewer's clock. Slash commands read --due naturally in the author's zone (readDeadline: today/tomorrow, weekdays, M/D[/YY], month names, ISO, then optional "at" and 5pm/5:30 PM/17:30/noon; words after the deadline stay in the title) and infer the next future occurrence, including leap years; the worker waits up to 1.5 s to learn that zone first. A spring-forward gap time moves forward by the gap. The due-moments migration converted older deadlines as Eastern and refreshed their cards. Older ISO --due YYYY-MM-DD and --at HH:MM commands remain supported for compatibility.
 
-Task names open a Task details modal for the creator or assignee. Only creators can open Edit from that modal. Details are plain text (up to 3,000 characters); up to five PNG/JPEG/GIF images are stored as private Slack file IDs. Image uploads are disabled unless SLACK_IMAGE_UPLOADS=true and Relay has been reinstalled with the files:read bot scope. Both manifests include that scope. Removing attachments unlinks them from the task; it does not delete the underlying Slack files. Existing task data migrates with empty details and no images.
+Task names open a Task details modal for the creator or assignee. Only creators can open Edit from that modal. Details are plain text (up to 3,000 characters); up to five PNG/JPEG/GIF images are stored as private Slack file IDs. Image uploads are disabled unless SLACK_IMAGE_UPLOADS=true and Relay has been reinstalled with the files:read bot scope. Add that scope only when enabling image uploads. Removing attachments unlinks them from the task; it does not delete the underlying Slack files. Existing task data migrates with empty details and no images.
 
 Slash commands accept optional --details "Text" before or after --due. Parsing removes quoted details before interpreting other flags, so option-like text inside notes stays literal. Escaped double quotes and backslashes are supported, as are mobile smart quotes. Repeated flags, unclosed quotes, and notes above 3,000 characters are rejected before creating a task.
 
@@ -115,8 +123,24 @@ Archive state is independent of task progress everywhere. Home replaces Action w
 
 Only tasks created with /task have a channel card: tasks.channelId is the channel where the command ran and messageTs is the posted card. Tasks created in Relay Home store channelId NULL and are never enqueued for delivery. Home and /tasks mine|assigned list a person's tasks across all channels; /tasks team|all list tasks whose card is in the current channel.
 
-Completion, send-back, and reassignment notices share the completion_notifications queue (kind = complete, reopen, assign). A notice waits until the card is up to date, then replies in the card's thread; without a card it is a direct message from Relay to the recipient (chat.postMessage to the user ID, which needs only chat:write and the Messages tab). Nobody is notified about their own task. Each status change drops any unsent notice for the previous one.
+Completion, send-back, and reassignment notices share the completion_notifications queue (kind = complete when the assignee finishes, closed when the assigner marks it Done, reopen, assign). A notice waits until the card is up to date, then replies in the card's thread; without a card it is a direct message from Relay to the recipient (chat.postMessage to the user ID, which needs only chat:write and the Messages tab). Nobody is notified about their own task. Each status change drops any unsent notice for the previous one.
 
 If Slack reports the card can never be posted or updated (message_not_found, not_in_channel, channel_not_found, is_archived, and similar), detachCard clears channelId and messageTs, removes the outbox row, and falls back to direct messages; a card that was never posted also queues an assignee DM. A direct message that can never be delivered (for example user_not_found) keeps its error and is not retried. Transient errors still retry with backoff.
 
 The cardless-tasks migration rebuilds the tasks table so channelId can be NULL, with foreign keys switched off only for the table swap.
+
+## Keeping Home current
+
+Every task change marks the assigner, the assignee, and a new assignee on reassignment as having an outdated Home (TaskStore.staleHomes, in memory). After each delivery flush, refreshStaleHomes republishes Home for those people, keeping the view they last had open (Current or Past, expanded lists, pages), which publishTaskHome records in TaskStore.homeViews. Publishing someone's Home clears their pending refresh, so the actor's own notice is never overwritten. Only people who opened Relay Home since the worker started are refreshed; anyone else gets a fresh Home from app_home_opened when they open it.
+
+Home task buttons are shortened to Slack's 75-character limit on whole characters (Intl.Segmenter), so emoji and other multi-part characters are never split.
+
+## Reminders
+
+src/reminders.js DMs assignees so assigners never have to nag. The worker (and HTTP server) checks once a minute, and on connect:
+
+- **Morning summary** at REMINDER_DIGEST_TIME (default 09:00) in each person's own time zone, every day, listing their unfinished, unarchived tasks: Overdue, Due today, ⏰ Due tomorrow (the day-before reminder), Coming up, No deadline. Up to ten tasks, then "…and N more in Relay Home". If Relay was down at that time it catches up for three hours, never later. Nothing is sent to people with no open work.
+- **Timed deadlines**: a heads-up one hour before dueAt, unless the task was created inside that hour. A new deadline gets its own heads-up.
+- **Date-only deadlines**: a heads-up at REMINDER_DUE_DAY_TIME (default 16:00) on the due day, plus the morning summary's Due tomorrow the day before.
+
+Every reminder has a key (digest:user:date, soon:task:dueAt:user, today:task:date:user) stored in reminders_sent, so it is sent at most once, even across restarts; passing Slack errors retry next minute, unreachable people are skipped. Each task line has a Mark done button (action remind_done), handled before the test channel lock because reminders arrive in DMs; it completes the task as the clicker (assignee or assigner rules apply) and edits the DM in place. People turn reminders on or off with the 🔔 Reminders switch in Relay Home (reminder_settings; on by default). RELAY_REMINDERS=off disables all reminders. Reminders only go to assignees, never to assigners.

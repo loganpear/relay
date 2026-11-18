@@ -3,11 +3,12 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError, parseTask, labels, isTaskArchived, formatDue } from './tasks.js';
-import { SlackClient, verifySlack, flushOutbox, escapeSlack } from './slack.js';
-import { homeRequest, publishTaskHome } from './home.js';
+import { SlackClient, verifySlack, flushOutbox, escapeSlack, learnTimeZoneQuickly } from './slack.js';
+import { homeRequest, publishTaskHome, refreshStaleHomes } from './home.js';
 import { handleAppUi, runAppUiEffects } from './ui.js';
+import { handleReminderAction, sendReminders } from './reminders.js';
 
-const help = 'Create: /task @person Task title --due MM/DD HH:MM AM/PM --details "Requirements or notes"\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
+const help = 'Create: /task @person Task title --due fri 5pm --details "Requirements or notes"\nDeadlines: --due tomorrow, --due 11/6, --due nov 6 at noon, --due 11/06 5:30 PM\nThe assignee clicks Mark done; the assigner gets a completion mention in the task thread.\nLists: /tasks mine · /tasks assigned · /tasks team · /tasks all';
 const ephemeral = text => ({ response_type: 'ephemeral', text });
 
 export function handleCommand(store, form, receiptKey) {
@@ -20,11 +21,13 @@ export function handleCommand(store, form, receiptKey) {
     const tasks = store.list({ ...context, mode, includeDone: mode === 'all' });
     if (!tasks.length) return ephemeral('No matching tasks. Create one with /task @person Task title.');
     const heading = { mine: 'Your unfinished tasks', assigned: 'Unfinished tasks you assigned', team: 'Unfinished tasks in this channel', all: 'Tasks in this channel' }[mode];
-    return ephemeral(`*${heading}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}*${isTaskArchived(task)?' · Archived':''} · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task)}` : ''}`).join('\n') + '\nMark tasks done from their card or Relay Home. Showing up to 50 tasks.');
+    return ephemeral(`*${heading}*\n` + tasks.map(task => `• #${task.id} · ${escapeSlack(task.title)} — *${labels[task.status]}*${isTaskArchived(task)?' · Archived':''} · <@${task.assigneeId}>${task.dueDate ? ` · due ${formatDue(task,{timeZone:store.timeZoneOf(context.userId)})}` : ''}`).join('\n') + '\nMark tasks done from their card or Relay Home. Showing up to 50 tasks.');
   }
   if (form.command !== '/task') throw new TaskError('Unknown command. Use /task or /tasks.');
   if (!text || text === 'help') return ephemeral(help);
-  const task = store.create({ ...context, creatorId: context.userId, ...parseTask(text) }, receiptKey);
+  // Deadlines typed in /task are on the author's own clock.
+  const timeZone = store.timeZoneOf(context.userId);
+  const task = store.create({ ...context, creatorId: context.userId, dueZone: timeZone, ...parseTask(text, { timeZone }) }, receiptKey);
   return ephemeral(`Task #${task.id} saved. Its card will appear here. If Relay can’t post in this conversation, the task stays in Relay Home and the assignee gets a direct message.`);
 }
 
@@ -60,7 +63,7 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
   const flush = async () => {
     if (!client || flushing) return;
     flushing = true;
-    try { await flushOutbox(store, client); }
+    try { await flushOutbox(store, client); await refreshStaleHomes(client, store); }
     finally { flushing = false; }
   };
   const server = createServer(async (req, res) => {
@@ -111,11 +114,20 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
       if (path === '/slack/commands') {
         if (form.team_id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
         if (allowedChannelId && form.channel_id !== allowedChannelId) return send(res, 200, ephemeral('Relay testing is restricted to the private test channel. No task was created.'));
+        await learnTimeZoneQuickly(store, client, form.user_id);
         try { send(res, 200, handleCommand(store, form, key)); }
         catch (error) { if (!(error instanceof TaskError)) throw error; send(res, 200, ephemeral(error.message)); }
       } else {
         const payload = JSON.parse(form.payload ?? '{}');
         if (payload.team?.id !== teamId) return send(res, 403, { error: 'Workspace not configured.' });
+        if (payload.actions?.[0]?.action_id === 'remind_done') {
+          const result = handleReminderAction(store, { teamId }, payload, key);
+          send(res, 200, {});
+          if (result?.update?.ts && client) void client.call('chat.update', result.update).catch(() => {});
+          if (result?.feedback?.user && client) void client.call('chat.postEphemeral', result.feedback).catch(() => {});
+          void flush();
+          return;
+        }
         if (['home','modal'].includes(payload.view?.type) || payload.type === 'view_submission') {
           const ui=handleAppUi(store,{teamId},payload,key);
           send(res,200,ui?.ackPayload??{});
@@ -138,8 +150,15 @@ export function createApp({ store, secret, teamId, allowedChannelId, client, dem
     }
   });
   const timer = client ? setInterval(() => { void flush(); }, 1500) : null;
+  let reminding = false;
+  const reminderTimer = client ? setInterval(async () => {
+    if (reminding) return;
+    reminding = true;
+    try { await sendReminders(store, client); } catch { console.error('Relay reminders failed; they will retry next minute.'); } finally { reminding = false; }
+  }, 60000) : null;
+  reminderTimer?.unref();
   timer?.unref();
-  server.on('close', () => clearInterval(timer));
+  server.on('close', () => { clearInterval(timer); clearInterval(reminderTimer); });
   server.headersTimeout = 10_000;
   server.requestTimeout = 15_000;
   return server;

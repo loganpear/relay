@@ -14,12 +14,12 @@ const transition = (store, task, action, actorId = 'UASSIGNEE', extra = {}) => s
 
 test('parses Slack mentions, options, and valid dates without guessing', () => {
   assert.deepEqual(parseTask('<@U123|Alex> Fix mobile spacing --due 2026-11-02 --no-review'), { assigneeId: 'U123', title: 'Fix mobile spacing', dueDate: '2026-11-02' });
-  for (const text of ['@alex Fix it', '<@U123> Fix --due Friday', '<@U123> Fix --due 2026-02-30', '<@U123> --no-review', '<@U123> Fix --unknown yes']) assert.throws(() => parseTask(text), TaskError);
+  for (const text of ['@alex Fix it', '<@U123> Fix --due someday', '<@U123> Fix --due 2026-02-30', '<@U123> --no-review', '<@U123> Fix --unknown yes']) assert.throws(() => parseTask(text), TaskError);
 });
 
-test('only the assignee can complete a task, within its workspace and channel', () => {
+test('only the assignee or assigner can complete a task, within its workspace and channel', () => {
   const store = new TaskStore(); const task = store.create(base);
-  for (const actor of ['USTRANGER', 'UCREATOR']) assert.throws(() => transition(store, task, 'complete', actor), TaskError);
+  assert.throws(() => transition(store, task, 'complete', 'USTRANGER'), TaskError);
   assert.throws(() => transition(store, task, 'complete', 'UASSIGNEE', { channelId: 'COTHER' }), TaskError);
   assert.throws(() => transition(store, task, 'complete', 'UASSIGNEE', { teamId: 'TOTHER' }), TaskError);
   assert.throws(() => transition(store, task, 'complete', 'UASSIGNEE', { version: 99 }), TaskError);

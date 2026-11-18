@@ -1,17 +1,18 @@
-import { TaskError, validateTask, dueTimezone, dueTimezoneLabel, taskImages, validateDetails, formatDue, isTaskArchived } from './tasks.js';
+import { TaskError, validateTask, dueTimezone, taskImages, validateDetails, formatDue, isTaskArchived, dueInZone, zoneLabel, validTimeZone } from './tasks.js';
 import { homeRequest, homeState, viewState, section, button, publishTaskHome } from './home.js';
+import { digestTimeLabel } from './reminders.js';
 
 const plain = text => ({type:'plain_text',text});
 const input = (block_id,label,element,optional=false)=>({type:'input',block_id,label:plain(label),element,...(optional?{optional:true}:{})});
 const uploadsEnabled = () => process.env.SLACK_IMAGE_UPLOADS === 'true';
 const imageBlocks = task => taskImages(task).map((id,index)=>({type:'image',slack_file:{id},alt_text:`Task image ${index+1}`}));
-export function taskDetails(task,actorId,state={},source='assigned') {
+export function taskDetails(task,actorId,state={},source='assigned',timeZone=dueTimezone) {
   const blocks=[section(task.title),{type:'section',fields:[
     {type:'mrkdwn',text:`*Assigned to*\n<@${task.assigneeId}>`},
     {type:'mrkdwn',text:`*Assigned by*\n<@${task.creatorId}>`},
     {type:'plain_text',text:`Status: ${task.status==='done'?'✅ Done':'🔲 To do'}`},
     {type:'plain_text',text:`Archived: ${isTaskArchived(task)?'Archived':'Active'}`},
-    {type:'plain_text',text:`Due: ${formatDue(task)} (${dueTimezoneLabel})`}
+    {type:'plain_text',text:`Due: ${formatDue(task,{timeZone})}${dueInZone(task,timeZone).time?` (${zoneLabel(timeZone)})`:''}`}
   ]},{type:'divider'}];
   const details=task.details||'No additional details yet.';
   for(let i=0;i<details.length;i+=3000)blocks.push(section(details.slice(i,i+3000)));
@@ -26,17 +27,17 @@ function attachmentInputs(task) {
     ...(uploadsEnabled()&&images.length<5?[input('images','Add images',{type:'file_input',action_id:'value',filetypes:['png','jpg','jpeg','gif'],max_files:5-images.length},true)]:[])
   ];
 }
-function modal(operation, state, task) {
-  const meta={operation,state,...(task?{taskId:task.id,version:task.version}:{})};
+function modal(operation, state, task, timeZone=dueTimezone) {
+  const meta={operation,state,timeZone,...(task?{taskId:task.id,version:task.version}:{})},shown=dueInZone(task,timeZone);
   const base={type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify(meta),title:plain(operation==='create'?'New task':operation==='edit'?'Edit task':operation==='due'?'Edit due date':'Archive task'),close:plain('Cancel')};
   if(['archive','delete'].includes(operation))return {...base,submit:plain('Archive task'),blocks:[section(`Archive “${task.title}”? ${task.status==='todo'?'Work will no longer be required, and the task will move to Past for both people.':'It will move to your Past list.'} You can move it to Current again later.`)]};
   return {...base,submit:plain(operation==='create'?'Create task':'Save changes'),blocks:[
     ...(operation==='due'?[section(task.title)]:[input('title','Task',{type:'plain_text_input',action_id:'value',max_length:240,...(task?{initial_value:task.title}:{})}),
     input('assignee','Assign to',{type:'users_select',action_id:'value',placeholder:plain('Choose a teammate'),...(task?{initial_user:task.assigneeId}:{})})]),
-    ...(operation==='edit'&&state.period==='past'?[]:[input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(task?.dueDate?{initial_date:task.dueDate}:{})},true),
-    input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:dueTimezone,placeholder:plain('Choose a time'),...(task?.dueTime?{initial_time:task.dueTime}:{})},true)]),
+    ...(operation==='edit'&&state.period==='past'?[]:[input('due_date','Due date',{type:'datepicker',action_id:'value',placeholder:plain('Choose a date'),...(shown.date?{initial_date:shown.date}:{})},true),
+    input('due_time','Due time',{type:'timepicker',action_id:'value',timezone:timeZone,placeholder:plain('Choose a time'),...(shown.time?{initial_time:shown.time}:{})},true)]),
     ...(operation!=='due'?attachmentInputs(task):[]),
-    {type:'context',elements:[plain('Times use '+dueTimezoneLabel+'. Tasks made here are not posted in a channel; Relay lets people know by direct message. The assignee marks work done; the assigner gets a completion mention.')]}
+    {type:'context',elements:[plain('Times use your time zone ('+zoneLabel(timeZone)+'); everyone sees deadlines in their own. Tasks made here are not posted in a channel; Relay lets people know by direct message. The assignee marks work done; the assigner gets a completion mention.')]}
   ]};
 }
 function choiceModal(operation,state,task,source) {
@@ -44,8 +45,14 @@ function choiceModal(operation,state,task,source) {
   const options=(status?[['todo','🔲 To do'],['done','✅ Done']]:[['active','Active'],['archived','Archived']]).map(([value,label])=>({text:plain(label),value}));
   const current=status?task.status:isTaskArchived(task)?'archived':'active';
   return {type:'modal',callback_id:'relay_task_form',private_metadata:JSON.stringify({operation,state,taskId:task.id,version:task.version}),title:plain(status?'Change status':'Change archive state'),close:plain('Cancel'),submit:plain('Save'),blocks:[section(task.title),input('choice',status?'Status':'Archive',{type:'static_select',action_id:'value',options,initial_option:options.find(option=>option.value===current)}),
-    ...(status&&source==='assigned'?[{type:'context',elements:[plain('Choose To do to send this task back to the assignee.')]}]:[]),
+    ...(status&&source==='assigned'?[{type:'context',elements:[plain((task.status==='done'?'Choose To do to send this task back':'Choose Done to mark it finished')+'. The assignee will get a mention.')]}]:[]),
     ...(!status?[{type:'context',elements:[plain(task.status==='todo'?'Archiving stops this task for both people. Reactivating makes it current again.':'Archiving moves this task to your Past list. Reactivating keeps it current for seven days.')]}]:[])]};
+}
+// What the person who changed status sees: the assignee's Done work moves to their Past; the assigner's stays Current.
+function statusResult(home,task,actorId,choice){
+  if(choice!=='done')return {...home,notice:'Task sent back to To do. The assignee will get a mention.'};
+  if(task.assigneeId===actorId)return {...home,completionTitle:task.title,notice:'Task marked done and moved to Past.'};
+  return {...home,notice:'Task marked Done. The assignee will get a mention.'};
 }
 function failedModal(message){return {response_action:'update',view:{type:'modal',title:plain('Could not save'),close:plain('Close'),blocks:[section(message+' Close this form and refresh Relay before trying again.')]}};}
 export function handleAppUi(store,{teamId},payload,receiptKey){
@@ -72,7 +79,7 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
           if(!['todo','done'].includes(choice)||task.deletedAt||(task.status==='todo'&&task.archivedAt))throw new TaskError('Choose To do or Done on an active task.');
           if(choice===task.status)return {ackPayload:{},home};
           store.transition({...context,id:task.id,version:meta.version,action:choice==='done'?'complete':'reopen',receiptKey:key});
-          return {ackPayload:{},home:{...home,...(choice==='done'?{completionTitle:task.title}:{}),notice:choice==='done'?'Task marked done and moved to Past.':'Task sent back to To do. The assignee will get a mention in its thread.'}};
+          return {ackPayload:{},home:statusResult(home,task,actorId,choice)};
         }
         if(!['active','archived'].includes(choice))throw new TaskError('Choose Active or Archived.');
         if((choice==='archived')===isTaskArchived(task))return {ackPayload:{},home};
@@ -83,12 +90,14 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
         if(meta.operation==='due'&&state.period==='past')throw new TaskError('Move this task to Current before changing its due date.');
         const values=payload.view.state?.values??{};
         const task=meta.operation==='due'?store.get(meta.taskId,teamId):null;
-        if(meta.operation==='edit'&&state.period==='past'){
-          const original=store.get(meta.taskId,teamId);
-          if((values.due_date&&(values.due_date.value?.selected_date??null)!==original?.dueDate)||(values.due_time&&(values.due_time.value?.selected_time??null)!==original?.dueTime))throw new TaskError('Move this task to Current before changing its due date.');
-          values.due_date={value:{selected_date:original?.dueDate}};values.due_time={value:{selected_time:original?.dueTime}};
+        const formZone=validTimeZone(meta.timeZone)?meta.timeZone:dueTimezone;
+        const original=meta.operation==='edit'&&state.period==='past'?store.get(meta.taskId,teamId):null;
+        if(original){
+          const shown=dueInZone(original,formZone);
+          if((values.due_date&&(values.due_date.value?.selected_date??null)!==shown.date)||(values.due_time&&(values.due_time.value?.selected_time??null)!==shown.time))throw new TaskError('Move this task to Current before changing its due date.');
         }
-        const changes=validateTask({title:meta.operation==='due'?task?.title:values.title?.value?.value,assigneeId:meta.operation==='due'?task?.assigneeId:values.assignee?.value?.selected_user,dueDate:values.due_date?.value?.selected_date,dueTime:values.due_time?.value?.selected_time});
+        const due=original?{dueDate:original.dueDate,dueTime:original.dueTime,dueZone:original.dueZone}:{dueDate:values.due_date?.value?.selected_date,dueTime:values.due_time?.value?.selected_time,dueZone:formZone};
+        const changes=validateTask({title:meta.operation==='due'?task?.title:values.title?.value?.value,assigneeId:meta.operation==='due'?task?.assigneeId:values.assignee?.value?.selected_user,...due});
         if(['create','edit'].includes(meta.operation)&&values.details) {
           const current=meta.operation==='edit'?store.get(meta.taskId,teamId):null,existing=taskImages(current||{});
           const kept=(values.keep_images?.value?.selected_options??[]).map(option=>option.value);
@@ -101,7 +110,7 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
         if(meta.operation==='create')store.create({...changes,teamId,creatorId:actorId},key);
         else store.manage({...context,id:meta.taskId,version:meta.version,action:'edit',changes,receiptKey:key});
         const saved=meta.operation==='edit'?store.get(meta.taskId,teamId):null;
-        return {ackPayload:meta.returnToDetails&&saved?{response_action:'update',view:taskDetails(saved,actorId,state)}:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
+        return {ackPayload:meta.returnToDetails&&saved?{response_action:'update',view:taskDetails(saved,actorId,state,'assigned',store.timeZoneOf(actorId))}:{},home:{...home,notice:meta.operation==='create'?'Task created.':'Changes saved.'}};
       }
       if(['archive','delete'].includes(meta.operation)){
         store.manage({...context,id:meta.taskId,version:meta.version,action:'archive',receiptKey:key});
@@ -128,7 +137,7 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
       if(!task||task.creatorId!==actorId||task.deletedAt||task.version!==row.version)throw new TaskError('This task changed. Close and reopen it before editing.');
       const state=homeState(JSON.parse(payload.view.private_metadata||'{}').state);
       const operation=payload.actions[0].action_id==='ui_delete_details'?'archive':'edit';
-      const view=modal(operation,state,task),meta=JSON.parse(view.private_metadata);meta.returnToDetails=true;view.private_metadata=JSON.stringify(meta);
+      const view=modal(operation,state,task,store.timeZoneOf(actorId)),meta=JSON.parse(view.private_metadata);meta.returnToDetails=true;view.private_metadata=JSON.stringify(meta);
       return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view}};
     } catch {return {ackPayload:{},updateModal:{view_id:payload.view.id,hash:payload.view.hash,view:failedModal('This task changed.').view}};}
   }
@@ -140,21 +149,25 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
   const name=action.action_id.split(':')[0];
   const state=viewState(payload),home={userId:actorId,...state};
   try{
-    if(name==='ui_new')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal('create',state)}};
+    if(name==='ui_reminders'){
+      const on=JSON.parse(action.value||'{}').on===true;store.setReminders(actorId,on);
+      return {ackPayload:{},home:{...home,notice:on?`Reminders are on: a ${digestTimeLabel()} summary of your unfinished tasks, plus a heads-up before deadlines.`:'Reminders are off. Turn them back on here anytime.'}};
+    }
+    if(name==='ui_new')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal('create',state,null,store.timeZoneOf(actorId))}};
     let row;
     try { row=JSON.parse(name==='ui_status'?action.selected_option?.value:action.value); } catch { throw new TaskError('Refresh Relay and try this task again.'); }
     if(!Number.isSafeInteger(row.id)||!Number.isSafeInteger(row.version))throw new TaskError('Invalid task control. Refresh Relay.');
     const task=store.get(row.id,teamId);
     if(!task||![task.creatorId,task.assigneeId].includes(actorId))throw new TaskError('Choose one of your tasks first.');
     if(name==='ui_status'&&receiptKey&&store.receipt(receiptKey))return {ackPayload:{},home};
-    if(name==='ui_details')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state,action.action_id.split(':')[1]||'assigned')}};
+    if(name==='ui_details')return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:taskDetails(task,actorId,state,action.action_id.split(':')[1]||'assigned',store.timeZoneOf(actorId))}};
     if(row.version!==task.version)throw new TaskError('This task changed. Refresh Relay and try again.');
     if(state.period==='past'&&['ui_choose_status','ui_status','ui_complete','ui_reopen'].includes(name))throw new TaskError('Move this task to Current before changing its status.');
     if(['ui_choose_status','ui_choose_archive'].includes(name)){
       const source=action.action_id.split(':')[1];
       const canFinish=source==='mine'&&task.assigneeId===actorId&&task.status==='todo'&&!task.archivedAt&&!task.deletedAt;
-      const canSendBack=source==='assigned'&&task.creatorId===actorId&&task.status==='done'&&!isTaskArchived(task);
-      if(name==='ui_choose_status'&&!canFinish&&!canSendBack)throw new TaskError('Only the assignee can mark an active task done, and only the assigner can send it back to To do.');
+      const canManage=source==='assigned'&&task.creatorId===actorId&&!task.deletedAt&&!isTaskArchived(task);
+      if(name==='ui_choose_status'&&!canFinish&&!canManage)throw new TaskError('Only the assignee or assigner can change the status of an active task.');
       if(name==='ui_choose_archive'&&(source!=='assigned'||task.creatorId!==actorId||task.deletedAt))throw new TaskError('Only the assigner can archive a task.');
       return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:choiceModal(name==='ui_choose_status'?'status':'archive_state',state,task,source)}};
     }
@@ -162,12 +175,12 @@ export function handleAppUi(store,{teamId},payload,receiptKey){
       if(!['todo','done'].includes(row.status)||task.deletedAt)throw new TaskError('Choose To do or Done on an active task.');
       if(task.status===row.status)return {ackPayload:{},home};
       store.transition({...context,id:task.id,version:task.version,action:row.status==='done'?'complete':'reopen',receiptKey});
-      return {ackPayload:{},home:{...home,...(row.status==='done'?{completionTitle:task.title}:{}),notice:row.status==='done'?'Task marked done and moved to Past.':'Task sent back to To do. The assignee will get a mention in its thread.'}};
+      return {ackPayload:{},home:statusResult(home,task,actorId,row.status)};
     }
     if(name==='ui_due'&&state.period==='past')throw new TaskError('Move this task to Current before changing its due date.');
     if(['ui_edit','ui_due','ui_delete'].includes(name)){
       if(action.action_id.split(':')[1]==='mine'||task.creatorId!==actorId||task.deletedAt)throw new TaskError('Only the assigner can edit or archive a task.');
-      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'archive',state,task)}};
+      return {ackPayload:{},openModal:{trigger_id:payload.trigger_id,view:modal(name==='ui_edit'?'edit':name==='ui_due'?'due':'archive',state,task,store.timeZoneOf(actorId))}};
     }
     if(['ui_archive','ui_unarchive'].includes(name))store.manage({...context,id:task.id,version:task.version,action:name.slice(3),receiptKey});
     else if(name==='ui_restore')store.manage({...context,id:task.id,version:task.version,action:'unarchive',receiptKey});

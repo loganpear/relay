@@ -1,9 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError } from './tasks.js';
-import { SlackClient, flushOutbox } from './slack.js';
+import { SlackClient, flushOutbox, learnTimeZoneQuickly } from './slack.js';
 import { handleCommand, handleInteraction } from './server.js';
-import { homeRequest, publishTaskHome } from './home.js';
+import { homeRequest, publishTaskHome, refreshStaleHomes } from './home.js';
 import { handleAppUi, runAppUiEffects } from './ui.js';
+import { handleReminderAction, sendReminders } from './reminders.js';
 
 export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
   const ack = { envelope_id: envelope.envelope_id };
@@ -19,6 +20,9 @@ export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
       if (ui?.ackPayload && envelope.accepts_response_payload) ack.payload=ui.ackPayload;
       return {ack,...(ui?.home?{home:ui.home}:{}),...(ui?.openModal?{openModal:ui.openModal}:{}),...(ui?.updateModal?{updateModal:ui.updateModal}:{})};
     } catch { return { ack }; }
+  }
+  if (envelope.type === 'interactive' && payload.actions?.[0]?.action_id === 'remind_done') {
+    try { return { ack, ...(handleReminderAction(store, { teamId }, payload, `socket:${envelope.envelope_id}`) ?? {}) }; } catch { return { ack }; }
   }
   const actualTeam = envelope.type === 'slash_commands' ? payload.team_id : payload.team?.id;
   const actualChannel = envelope.type === 'slash_commands' ? payload.channel_id : payload.channel?.id;
@@ -44,13 +48,21 @@ export function handleEnvelope({ store, teamId, allowedChannelId }, envelope) {
 
 export function startSocket({ store, client, appToken, teamId, allowedChannelId, WebSocketImpl = WebSocket, fetcher = fetch, logger = console }) {
   if (!appToken || !teamId) throw new Error('Socket mode requires an app token and workspace ID.');
-  let socket, reconnectTimer, stopped = false, flushing = false, attempts = 0, ready = false;
+  let socket, reconnectTimer, stopped = false, flushing = false, reminding = false, attempts = 0, ready = false;
   const flush = async () => {
     if (flushing || stopped) return;
     flushing = true;
-    try { await flushOutbox(store, client); }
+    try { await flushOutbox(store, client); await refreshStaleHomes(client, store); }
     catch { logger.error('Relay delivery queue failed; it will retry.'); }
     finally { flushing = false; }
+  };
+  // Reminders are checked every minute; each one is sent at most once.
+  const remind = async () => {
+    if (reminding || stopped) return;
+    reminding = true;
+    try { await sendReminders(store, client, { logger }); }
+    catch { logger.error('Relay reminders failed; they will retry next minute.'); }
+    finally { reminding = false; }
   };
   const retry = () => {
     ready = false;
@@ -72,21 +84,23 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
       const current = new WebSocketImpl(url.href);
       socket = current;
       const openTimeout = setTimeout(() => { if (!ready) { current.close(); retry(); } }, 15000);
-      current.addEventListener('message', event => {
+      current.addEventListener('message', async event => {
         if (stopped || current !== socket) return;
         try {
           const envelope = JSON.parse(String(event.data));
           if (envelope.type === 'hello') {
             clearTimeout(openTimeout); ready = true; attempts = 0;
             logger.log(allowedChannelId ? 'Relay connected to Slack. Slash commands and card buttons are limited to the test channel.' : 'Relay connected to Slack.');
-            void flush(); return;
+            void flush(); void remind(); return;
           }
           if (envelope.type === 'disconnect') { current.close(); retry(); return; }
           if (!envelope.envelope_id) return;
-          const { ack, feedback, home, openModal, updateModal } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
+          if (envelope.type === 'slash_commands') await learnTimeZoneQuickly(store, client, envelope.payload?.user_id);
+          const { ack, feedback, home, openModal, updateModal, update } = handleEnvelope({ store, teamId, allowedChannelId }, envelope);
           current.send(JSON.stringify(ack));
           if (home || openModal || updateModal) void runAppUiEffects(client,store,{teamId},{home,openModal,updateModal}).catch(() => logger.error('Relay could not refresh Home. Use Refresh or reopen Home.'));
           if (feedback?.user) void client.call('chat.postEphemeral', feedback).catch(() => {});
+          if (update?.ts) void client.call('chat.update', update).catch(() => {});
           void flush();
         } catch { logger.error('Relay could not process a socket event.'); }
       });
@@ -95,8 +109,9 @@ export function startSocket({ store, client, appToken, teamId, allowedChannelId,
     } catch { logger.error('Slack connection unavailable; retrying shortly.'); retry(); }
   };
   const queueTimer = setInterval(() => { if (ready) void flush(); }, 1500);
+  const reminderTimer = setInterval(() => { if (ready) void remind(); }, 60000);
   void connect();
-  return { stop() { stopped = true; clearInterval(queueTimer); clearTimeout(reconnectTimer); socket?.close(); } };
+  return { stop() { stopped = true; clearInterval(queueTimer); clearInterval(reminderTimer); clearTimeout(reconnectTimer); socket?.close(); } };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
