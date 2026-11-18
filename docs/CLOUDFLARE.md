@@ -5,7 +5,7 @@ Cloudflare Workers with SQLite-backed Durable Objects can run Relay without keep
 ## Deployment
 
 1. Create a free Cloudflare account, then run `npm install` in this repository with Node 24 or newer.
-2. Run `npx wrangler login` and review its account authorization. The deployment needs account/user read and Workers write access.
+2. Run `npx wrangler login --scopes account:read user:read workers:write workers_scripts:write --use-keyring` and review its account authorization. This requests account/user read, Workers write, Workers Scripts write, and background access. Workers Scripts write covers deploying scripts, Durable Objects, subdomains, and scheduled triggers; Workers write alone is insufficient. This avoids requesting Wrangler's broader default permissions for unrelated products.
 3. Create the Slack app in a developer sandbox using `slack-manifest.json`. Keep image uploads off unless you actually need them; the default scopes are `commands`, `chat:write`, and `users:read`.
 4. Store the sandbox app's values privately with `npx wrangler secret put SLACK_SIGNING_SECRET`, `npx wrangler secret put SLACK_BOT_TOKEN`, and `npx wrangler secret put SLACK_TEAM_ID`. You can optionally set `SLACK_ALLOWED_CHANNEL_ID` as a secret to lock commands and card buttons to a private test channel. Never use a real club's credentials or database for a public sandbox demonstration.
 5. Run `npm run deploy:cloudflare`. If Cloudflare asks you to choose a workers.dev subdomain, choose a suitable free subdomain. Do not add a paid subscription.
