@@ -1,4 +1,4 @@
-import { TaskError, validateTask, dueTimezone, taskImages, validateDetails, formatDue, isTaskArchived, dueInZone, zoneLabel, validTimeZone } from './tasks.js';
+import { TaskError, validateTask, dueTimezone, taskImages, validateDetails, formatDue, isTaskArchived, dueInZone, zoneLabel, validTimeZone } from './task-store.js';
 import { homeRequest, homeState, viewState, section, button, publishTaskHome } from './home.js';
 import { digestTimeLabel } from './reminders.js';
 

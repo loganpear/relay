@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay-slack",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-18",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{"name": "RELAY_WORKSPACE", "class_name": "RelayWorkspace"}]
+  },
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["RelayWorkspace"]}],
+  "triggers": {"crons": ["* * * * *"]},
+  "vars": {
+    "TASK_TIMEZONE": "America/New_York",
+    "SLACK_IMAGE_UPLOADS": "false",
+    "RELAY_REMINDERS": "on",
+    "REMINDER_DIGEST_TIME": "09:00",
+    "REMINDER_DUE_DAY_TIME": "16:00"
+  },
+  "observability": {"enabled": true}
+}

@@ -1,4 +1,4 @@
-import { formatDue, isTaskArchived, zoneLabel } from './tasks.js';
+import { formatDue, isTaskArchived, zoneLabel } from './task-store.js';
 import { learnTimeZone } from './slack.js';
 
 // Created times are shown in the viewer's own time zone.

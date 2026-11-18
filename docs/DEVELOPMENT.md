@@ -6,7 +6,7 @@ A small task manager inside Slack. Assign work, mark it done, and notify the ass
 
 ## Run the local preview
 
-Requires Node.js 24 or newer; there are no third-party packages to install.
+Requires Node.js 24 or newer. The Node service has no third-party runtime dependencies. Run `npm install` to install Cloudflare deployment/testing tools before running the full test suite.
 
 ```sh
 npm run demo
@@ -34,6 +34,8 @@ Select the assignee from Slack's mention suggestions. Deadlines accept natural t
 `/tasks assigned` lists unfinished tasks created by the requester. Personal lists span your tasks across channels; team/all lists stay in the current channel. Lists are limited to 50 tasks. Completed tasks appear in `/tasks all`.
 
 ## Connect a Slack developer sandbox
+
+For free cloud hosting with persistent storage and scheduled reminders, see [Cloudflare deployment](CLOUDFLARE.md).
 
 ### Local testing with Socket Mode
 

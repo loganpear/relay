@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { labels, isTaskArchived, formatDue, dueTimezoneLabel, validTimeZone } from './tasks.js';
+import { labels, isTaskArchived, formatDue, dueTimezoneLabel, validTimeZone } from './task-store.js';
 
 export function verifySlack(raw, headers, secret, now = Date.now()) {
   const timestamp = headers['x-slack-request-timestamp'];
@@ -43,7 +43,9 @@ export class SlackClient {
   async call(method, payload) {
     // Slack's read methods such as users.info ignore JSON bodies, so they are sent form-encoded.
     const form = formMethods.has(method);
-    const response = await this.fetcher(`https://slack.com/api/${method}`, {
+    // Workers' native fetch must not be invoked with a SlackClient as its receiver.
+    const fetcher=this.fetcher;
+    const response = await fetcher(`https://slack.com/api/${method}`, {
       method: 'POST', headers: { authorization: `Bearer ${this.token}`, 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' },
       body: form ? new URLSearchParams(payload).toString() : JSON.stringify(payload), signal: AbortSignal.timeout(8000)
     });

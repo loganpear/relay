@@ -1,4 +1,4 @@
-import { TaskError, clockParts, dueInZone, formatDue } from './tasks.js';
+import { TaskError, clockParts, dueInZone, formatDue } from './task-store.js';
 import { escapeSlack, learnTimeZone, unreachableUser } from './slack.js';
 
 // Reminders DM the assignee so the assigner never has to nag:

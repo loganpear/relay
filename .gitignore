@@ -8,6 +8,9 @@ node_modules/
 local/
 # Local handoff notes for agents working in this checkout.
 /AGENT_LOG.md
+.wrangler/
+.dev.vars
+.dev.vars.*
 # Logo drafts are kept locally at the user's request.
 assets/relay-checkbox*.png
 assets/relay-checkbox*.svg

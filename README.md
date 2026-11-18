@@ -8,7 +8,7 @@ Relay is a lightweight task manager for teams that want a clear owner and a clea
 
 Relay is currently an early, self-hosted release. A public **Add to Slack** installation is not available yet. Your workspace owner or a technical teammate needs to connect and run Relay once before your team can use it.
 
-**Setting up a workspace?** Follow the [Slack installation guide](docs/INSTALL.md).
+**Setting up a workspace?** Follow the [Slack installation guide](docs/INSTALL.md). To host Relay without keeping a computer on, see the [Cloudflare deployment guide](docs/CLOUDFLARE.md).
 
 **Relay already installed in your workspace?**
 

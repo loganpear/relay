@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { TaskStore, TaskError } from './tasks.js';
 import { SlackClient, flushOutbox, learnTimeZoneQuickly } from './slack.js';
-import { handleCommand, handleInteraction } from './server.js';
+import { handleCommand, handleInteraction } from './commands.js';
 import { homeRequest, publishTaskHome, refreshStaleHomes } from './home.js';
 import { handleAppUi, runAppUiEffects } from './ui.js';
 import { handleReminderAction, sendReminders } from './reminders.js';
